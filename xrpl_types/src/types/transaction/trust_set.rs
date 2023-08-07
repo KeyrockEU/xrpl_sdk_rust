@@ -1,13 +1,13 @@
+use std::fmt::Debug;
 use crate::serialize::{FieldCode, Serialize, Serializer};
-use crate::{AccountId, Amount, IssuedAmount, TransactionCommon, TransactionType, UInt32};
+use crate::{AccountId, Amount, Blob, IssuedAmount, TransactionCommon, TransactionType, UInt32};
 use enumflags2::{bitflags, BitFlags};
-use xrpl_serialize_derive::Serialize;
 
 /// A `TrustSet` transaction <https://xrpl.org/trustset.html>
 #[derive(Debug, Clone)]
 pub struct TrustSetTransaction {
-    // common is private such that transaction type cannot be modified to be out of sync with the transaction struct
-    common: TransactionCommon,
+    #[xrpl_binary(flatten)]
+    pub common: TransactionCommon,
     pub flags: BitFlags<TrustSetFlags>,
     pub limit_amount: IssuedAmount,
     pub quality_in: Option<UInt32>,
@@ -39,20 +39,15 @@ pub enum TrustSetFlags {
     ClearFreeze = 0x00200000,
 }
 
-impl Serialize for TrustSetTransaction {
-    fn serialize<S: Serializer>(&self, s: &mut S) -> Result<(), S::Error> {
-        s.serialize_uint16(FieldCode(2), TransactionType::TrustSet as u16)?;
-        self.common.serialize(s)?;
-        s.serialize_uint32(FieldCode(2), self.flags.bits())?;
-        s.serialize_amount(FieldCode(3), Amount::Issued(self.limit_amount))?;
-        if let Some(quality_in) = self.quality_in {
-            s.serialize_uint32(FieldCode(20), quality_in)?;
-        }
-        if let Some(quality_out) = self.quality_out {
-            s.serialize_uint32(FieldCode(21), quality_out)?;
-        }
-        Ok(())
-    }
+
+#[derive(Serialize)]
+#[xrpl_binary(crate_path = "crate")]
+pub struct TestObject {
+    #[xrpl_binary(flatten)]
+    pub common: TransactionCommon,
+    pub limit_amount: Amount,
+    pub quality_in: UInt32,
+    pub quality_out: UInt32,
+    pub txn_signature: Blob,
+
 }
-
-

@@ -6,5 +6,3 @@ pub mod serialize;
 /// Implements serialization according to <https://xrpl.org/serialization.html>
 pub mod serializer;
 pub mod sign;
-
-mod test_serialize_derive;
