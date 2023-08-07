@@ -1,0 +1,18 @@
+[package]
+name = "xrpl_serialize_derive"
+description = "Derive macro for Serialize trait"
+version = "0.10.0"
+license = "Apache-2.0"
+repository = "https://github.com/gmosx/xrpl_sdk_rust/tree/main/xrpl_serialize_derive"
+keywords = ["xrpl", "ledger", "api"]
+authors = ["George Moschovitis <gmosx@reizu.org>"]
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0.66"
+quote = "1.0.32"
+# todo allan remove extra-traits
+syn = { version = "2.0.28", features = ["extra-traits", "parsing"]  }

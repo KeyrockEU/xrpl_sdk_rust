@@ -8,4 +8,4 @@ pub mod serializer;
 pub mod sign;
 pub mod util;
 
-pub use error::*;
+mod test_serialize_derive;

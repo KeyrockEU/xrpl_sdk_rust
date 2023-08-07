@@ -1,5 +1,6 @@
 use crate::{IssuedAmount, TransactionCommon, UInt32};
 use enumflags2::{bitflags, BitFlags};
+use xrpl_serialize_derive::Serialize;
 
 /// A `TrustSet` transaction <https://xrpl.org/trustset.html>
 #[derive(Debug, Clone)]
@@ -23,3 +24,5 @@ pub enum TrustSetFlags {
     SetFreeze = 0x00100000,
     ClearFreeze = 0x00200000,
 }
+
+
