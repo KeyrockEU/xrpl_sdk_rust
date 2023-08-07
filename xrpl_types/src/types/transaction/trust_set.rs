@@ -6,7 +6,6 @@ use enumflags2::{bitflags, BitFlags};
 /// A `TrustSet` transaction <https://xrpl.org/trustset.html>
 #[derive(Debug, Clone)]
 pub struct TrustSetTransaction {
-    #[xrpl_binary(flatten)]
     pub common: TransactionCommon,
     pub flags: BitFlags<TrustSetFlags>,
     pub limit_amount: IssuedAmount,
@@ -45,9 +44,11 @@ pub enum TrustSetFlags {
 pub struct TestObject {
     #[xrpl_binary(flatten)]
     pub common: TransactionCommon,
+    #[xrpl_binary(name = "LimitAmount")]
     pub limit_amount: Amount,
+    #[xrpl_binary(name = "QualityIn")]
     pub quality_in: UInt32,
-    pub quality_out: UInt32,
-    pub txn_signature: Blob,
+    // #[xrpl_binary(name = "TxnSignature")]
+    // pub txn_signature: Blob,
 
 }
