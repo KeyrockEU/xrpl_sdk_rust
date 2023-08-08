@@ -9,7 +9,8 @@ use std::sync::{Once, OnceLock};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{
-    parse_macro_input, parse_quote, Attribute, Data, DeriveInput, LitInt, LitStr, Meta, Path, Token,
+    parse_macro_input, parse_quote, Attribute, Data, DeriveInput, LitInt, LitStr, Meta, Path,
+    Token, Type,
 };
 
 // todo handle Option fields
@@ -166,22 +167,13 @@ pub fn derive_serialize(input: TokenStream) -> TokenStream {
                 #xrpl_types_path::serialize::Serialize::serialize(&self.#field_ident, serializer)?;
             ))
         } else if let Some(field_name) = field_attributes.name.as_ref() {
-            let field_name_string = field_name.value();
-            let Some(field_info) = field_info(&field_name_string) else {
-                return quote_spanned! {
-                    field_name.span() =>
-                    compile_error!("Unknown field name");
-                }.into()
-            };
-
-            let serialize_method =
-                Ident::new(serialize_method(&field_info.field_type), field.span());
-            let field_code = Literal::u8_unsuffixed(field_info.field_code);
+            // println!("{:#?}", field.ty);
+            let serialize_method = Ident::new(serialize_method(&field.ty), field.span());
 
             Some(quote_spanned!(field.span() =>
                 #xrpl_types_path::serialize::Serializer::#serialize_method(
                     serializer,
-                    #xrpl_types_path::serialize::FieldCode(#field_code),
+                    #field_name,
                     self.#field_ident);
             ))
         } else {
@@ -207,47 +199,17 @@ pub fn derive_serialize(input: TokenStream) -> TokenStream {
     tokens.into()
 }
 
-struct FieldInfo {
-    field_type: String,
-    field_code: u8,
-}
+fn serialize_method(field_type: &Type) -> &'static str {
+    let ident = match field_type {
+        Type::Path(type_path) => type_path.path.get_ident().unwrap(),
+        _ => todo!(),
+    };
 
-static FIELD_INFO: OnceLock<HashMap<String, FieldInfo>> = OnceLock::new();
-
-fn field_info(field_name: &str) -> Option<&FieldInfo> {
-    FIELD_INFO
-        .get_or_init(|| {
-            let mut map = HashMap::new();
-            map.insert(
-                "LimitAmount".to_string(),
-                FieldInfo {
-                    field_type: "Amount".to_string(),
-                    field_code: 3,
-                },
-            );
-            map.insert(
-                "QualityIn".to_string(),
-                FieldInfo {
-                    field_type: "UInt32".to_string(),
-                    field_code: 20,
-                },
-            );
-            map.insert(
-                "TxnSignature".to_string(),
-                FieldInfo {
-                    field_type: "Blob".to_string(),
-                    field_code: 4,
-                },
-            );
-            map
-        })
-        .get(field_name)
-}
-
-fn serialize_method(field_type: &str) -> &'static str {
-    match field_type {
-        "UInt32" => "serialize_uint32",
-        "Amount" => "serialize_amount",
-        _ => panic!("Unknows field type {}", field_type),
+    if ident == "UInt32" {
+        "serialize_uint32"
+    } else if ident == "Amount" {
+        "serialize_amount"
+    } else {
+        panic!("Unknown field type {}", ident);
     }
 }
