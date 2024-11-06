@@ -9,9 +9,9 @@ repository = "https://github.com/gmosx/xrpl-sdk-rust/tree/main/xrpl_api"
 keywords = ["xrpl", "ledger", "api", "protocol"]
 
 [dependencies]
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
-enumflags2 = { workspace = true, features = ["serde"] }
+serde = { workspace = true, default-features = true, features = ["derive"] }
+serde_json = { workspace = true, default-features = true }
+enumflags2 = { workspace = true, default-features = true, features = ["serde"] }
 xrpl_types = { path = "../xrpl_types", version = "0.16.6" }
 
 [dev-dependencies]

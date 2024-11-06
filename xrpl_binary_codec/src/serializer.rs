@@ -1,14 +1,12 @@
 use crate::alloc::{format, string::ToString, vec::Vec};
 use crate::error::BinaryCodecError;
-use crate::serializer::field_id::{FieldCode, FieldId, TypeCode};
+
 use xrpl_types::{
     serialize::{Serialize, SerializeArray},
     AccountId, Amount, Blob, CurrencyCode, DropsAmount, Hash128, Hash160, Hash256, IssuedValue,
     UInt16, UInt32, UInt8, Uint64,
 };
-
-pub mod field_id;
-pub mod field_info;
+use crate::field::{field_info, FieldCode, FieldId, TypeCode};
 
 #[derive(Debug, Default)]
 pub struct Serializer {
@@ -303,8 +301,22 @@ impl Serializer {
     /// Push field id <https://xrpl.org/serialization.html#field-ids>
     fn push_field_id(&mut self, field_id: FieldId) -> Result<(), BinaryCodecError> {
         // rippled implementation: https://github.com/seelabs/rippled/blob/cecc0ad75849a1d50cc573188ad301ca65519a5b/src/ripple/protocol/impl/Serializer.cpp#L117-L148
-        let header: Vec<u8> = field_id.into();
-        self.push_slice(&header)
+        let type_code = field_id.type_code as u8;
+        let field_code = field_id.field_code.0;
+        if type_code < 16 && field_code < 16 {
+            self.push(type_code << 4 | field_code)?;
+        } else if type_code < 16 {
+            self.push(type_code << 4)?;
+            self.push(field_code)?;
+        } else if field_code < 16 {
+            self.push(field_code)?;
+            self.push(type_code)?;
+        } else {
+            self.push(0)?;
+            self.push(type_code)?;
+            self.push(field_code)?;
+        }
+        Ok(())
     }
 
     /// Push length prefix according to <https://xrpl.org/serialization.html#length-prefixing>
@@ -394,19 +406,16 @@ impl Serializer {
 }
 
 pub fn field_id(field_name: &str, field_type: TypeCode) -> Result<FieldId, BinaryCodecError> {
-    let field_info = field_info::field_info(field_name).ok_or_else(|| {
+    let field_id = *field_info::field_id_by_name(field_name).ok_or_else(|| {
         BinaryCodecError::InvalidField(format!("Field with name {} is not known", field_name))
     })?;
-    if field_type != field_info.field_type {
+    if field_type != field_id.type_code {
         return Err(BinaryCodecError::InvalidField(format!(
             "Field with name {} must have type {}",
-            field_name, field_info.field_type
+            field_name, field_id.type_code
         )));
     }
-    Ok(FieldId::from_type_field(
-        field_info.field_type,
-        field_info.field_code,
-    ))
+    Ok(field_id)
 }
 
 #[cfg(test)]
