@@ -138,11 +138,16 @@ impl<B: Buf> Deserializer<B> {
     }
 
     fn read_u8(&mut self) -> Result<u8, BinaryCodecError> {
-        if self.bytes.remaining() >= 1 {
-            Ok(self.bytes.get_u8())
-        } else {
-            Err(BinaryCodecError::InsufficientBytes("read_u8".into()))
-        }
+        self.check_remaining(1, "read_u8")?;
+
+        Ok(self.bytes.get_u8())
+    }
+
+    fn read_bytes(&mut self, len: usize) -> Result<Vec<u8>, BinaryCodecError> {
+        self.check_remaining(len, "read_bytes")?;
+        let mut bytes = vec![0; len];
+        self.bytes.copy_to_slice(&mut bytes);
+        Ok(bytes)
     }
 
     fn read_uint8(&mut self) -> Result<UInt8, BinaryCodecError> {
@@ -150,76 +155,70 @@ impl<B: Buf> Deserializer<B> {
     }
 
     fn read_uint16(&mut self) -> Result<UInt16, BinaryCodecError> {
-        if self.bytes.remaining() >= 2 {
-            Ok(self.bytes.get_u16())
-        } else {
-            Err(BinaryCodecError::InsufficientBytes("read_u16".into()))
-        }
+        self.check_remaining(2, "read_u16")?;
+
+        Ok(self.bytes.get_u16())
     }
 
     fn read_uint32(&mut self) -> Result<UInt32, BinaryCodecError> {
-        if self.bytes.remaining() >= 4 {
-            Ok(self.bytes.get_u32())
-        } else {
-            Err(BinaryCodecError::InsufficientBytes("read_u32".into()))
-        }
+        self.check_remaining(4, "read_u32")?;
+
+        Ok(self.bytes.get_u32())
     }
 
     fn read_uint64(&mut self) -> Result<UInt64, BinaryCodecError> {
-        if self.bytes.remaining() >= 8 {
-            Ok(self.bytes.get_u64())
-        } else {
-            Err(BinaryCodecError::InsufficientBytes("read_u64".into()))
-        }
+        self.check_remaining(8, "read_u64")?;
+
+        Ok(self.bytes.get_u64())
     }
 
     fn read_h128(&mut self) -> Result<Hash128, BinaryCodecError> {
-        if self.bytes.remaining() >= 16 {
-            let mut value = Hash128([0; 16]);
-            self.bytes.copy_to_slice(&mut value.0);
-            Ok(value)
-        } else {
-            Err(BinaryCodecError::InsufficientBytes("read_h128".into()))
-        }
+        self.check_remaining(16, "read_h128")?;
+
+        let mut value = Hash128([0; 16]);
+        self.bytes.copy_to_slice(&mut value.0);
+        Ok(value)
     }
 
     fn read_h160(&mut self) -> Result<Hash160, BinaryCodecError> {
-        if self.bytes.remaining() >= 20 {
-            let mut value = Hash160([0; 20]);
-            self.bytes.copy_to_slice(&mut value.0);
-            Ok(value)
-        } else {
-            Err(BinaryCodecError::InsufficientBytes("read_h160".into()))
-        }
+        self.check_remaining(20, "read_h160")?;
+
+        let mut value = Hash160([0; 20]);
+        self.bytes.copy_to_slice(&mut value.0);
+        Ok(value)
     }
 
     fn read_h256(&mut self) -> Result<Hash256, BinaryCodecError> {
-        if self.bytes.remaining() >= 32 {
-            let mut value = Hash256([0; 32]);
-            self.bytes.copy_to_slice(&mut value.0);
-            Ok(value)
-        } else {
-            Err(BinaryCodecError::InsufficientBytes("read_h256".into()))
-        }
+        self.check_remaining(32, "read_h256")?;
+
+        let mut value = Hash256([0; 32]);
+        self.bytes.copy_to_slice(&mut value.0);
+        Ok(value)
     }
 
-    // fn read_variable_length(&mut self) -> Result<usize, BinaryCodecError> {
-    //     let b1 = self.read_u8()? as usize;
-    //     if b1 <= 192 {
-    //         Ok(b1)
-    //     } else if b1 <= 240 {
-    //         let b2 = self.read_u8()? as usize;
-    //         Ok(193 + (b1 - 193) * 256 + b2)
-    //     } else if b1 <= 254 {
-    //         let b2 = self.read_u8()? as usize;
-    //         let b3 = self.read_u8()? as usize;
-    //         Ok(12481 + (b1 - 241) * 65536 + b2 * 256 + b3)
-    //     } else {
-    //         Err(BinaryCodecError::InvalidLength(
-    //             "Invalid variable length indicator".into(),
-    //         ))
-    //     }
-    // }
+    fn read_blob(&mut self) -> Result<Blob, BinaryCodecError> {
+        let count = self.read_vl_prefix()?;
+        Ok(Blob(self.read_bytes(count)?))
+    }
+
+    /// Read length prefix according to <https://xrpl.org/serialization.html#length-prefixing>
+    fn read_vl_prefix(&mut self) -> Result<usize, BinaryCodecError> {
+        let b1 = self.read_u8()? as usize;
+        if b1 <= 192 {
+            Ok(b1)
+        } else if b1 <= 240 {
+            let b2 = self.read_u8()? as usize;
+            Ok(193 + (b1 - 193) * 256 + b2)
+        } else if b1 <= 254 {
+            let b2 = self.read_u8()? as usize;
+            let b3 = self.read_u8()? as usize;
+            Ok(12481 + (b1 - 241) * 65536 + b2 * 256 + b3)
+        } else {
+            Err(BinaryCodecError::InvalidLength(
+                "Invalid variable length indicator".into(),
+            ))
+        }
+    }
     //
     // fn read_field_ordinal(&mut self) -> Result<u32, BinaryCodecError> {
     //     let mut type_code = self.read_u8()? as u32;
@@ -276,11 +275,20 @@ impl<B: Buf> Deserializer<B> {
     // pub fn end(&mut self) -> bool {
     //     self.bytes.remaining() == 0
     // }
+
+    fn check_remaining(&mut self, len: usize, context: &str) -> Result<(), BinaryCodecError> {
+        if self.bytes.remaining() >= len {
+            Ok(())
+        } else {
+            Err(BinaryCodecError::InsufficientBytes(context.into()))
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_matches::assert_matches;
 
     fn deserializer(bytes: &[u8]) -> Deserializer<&[u8]> {
         Deserializer::new(bytes)
@@ -362,5 +370,59 @@ mod tests {
                 0x00, 0x00, 0x00, 0x12,
             ])
         );
+    }
+
+    #[test]
+    fn test_read_blob() {
+        let mut s = deserializer(&[3, 0x34, 0x00, 0x12]);
+        let value = s.read_blob().unwrap();
+        assert_eq!(value, Blob(vec![0x34, 0x00, 0x12]));
+    }
+
+    /// Tests length prefix according to <https://xrpl.org/serialization.html#length-prefixing>
+    #[test]
+    #[allow(clippy::erasing_op, clippy::identity_op)]
+    fn test_push_vl_prefix() {
+        // test range 0 to 192
+        let mut s = deserializer(&[0, 1, 192]);
+        assert_eq!(s.read_vl_prefix().unwrap(), 0);
+        assert_eq!(s.read_vl_prefix().unwrap(), 1);
+        assert_eq!(s.read_vl_prefix().unwrap(), 192);
+
+        // test range 193 to 12480
+        let mut s = deserializer(&[193, 0, 193, 1, 240, 255]);
+        assert_eq!(s.read_vl_prefix().unwrap(), 193 + ((193 - 193) * 256) + 0);
+        assert_eq!(s.read_vl_prefix().unwrap(), 193 + ((193 - 193) * 256) + 1);
+        assert_eq!(193 + ((240 - 193) * 256) + 255, 12480);
+        assert_eq!(s.read_vl_prefix().unwrap(), 193 + ((240 - 193) * 256) + 255);
+
+        // test range 12481 to 918744
+        let mut s = deserializer(&[241, 0, 0, 241, 0, 1, 241, 1, 0, 241, 255, 255, 254, 212, 23]);
+        assert_eq!(
+            s.read_vl_prefix().unwrap(),
+            12481 + ((241 - 241) * 65536) + (0 * 256) + 0
+        );
+        assert_eq!(
+            s.read_vl_prefix().unwrap(),
+            12481 + ((241 - 241) * 65536) + (0 * 256) + 1
+        );
+        assert_eq!(
+            s.read_vl_prefix().unwrap(),
+            12481 + ((241 - 241) * 65536) + (1 * 256) + 0
+        );
+        assert_eq!(
+            s.read_vl_prefix().unwrap(),
+            12481 + ((241 - 241) * 65536) + (255 * 256) + 255
+        );
+        assert_eq!(12481 + ((254 - 241) * 65536) + (212 * 256) + 23, 918744);
+        assert_eq!(
+            s.read_vl_prefix().unwrap(),
+            12481 + ((254 - 241) * 65536) + (212 * 256) + 23
+        );
+
+        // test out of range
+        let mut s = deserializer(&[255]);
+        let result = s.read_vl_prefix();
+        assert_matches!(result, Err(BinaryCodecError::InvalidLength(_)));
     }
 }
