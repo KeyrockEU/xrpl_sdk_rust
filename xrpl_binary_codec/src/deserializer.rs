@@ -2,10 +2,11 @@ use crate::{
     alloc::{string::String, vec, vec::Vec},
     error::BinaryCodecError,
 };
+use ascii::AsciiChar;
 use bytes::Buf;
 
 use xrpl_types::{
-    AccountId, Amount, Blob, Hash128, Hash160, Hash256, UInt16, UInt32, UInt64, UInt8,
+    AccountId, Amount, Blob, CurrencyCode, Hash128, Hash160, Hash256, UInt16, UInt32, UInt64, UInt8,
 };
 
 use xrpl_types::deserialize::Deserialize;
@@ -229,6 +230,22 @@ impl<B: Buf> Deserializer<B> {
         }
     }
 
+    /// <https://xrpl.org/docs/references/protocol/binary-format#currency-codes>
+    fn read_currency_code(&mut self) -> Result<CurrencyCode, BinaryCodecError> {
+        let array = self.read_array::<20>()?;
+        if array == [0u8; 20] {
+            Ok(CurrencyCode::Xrp)
+        } else if array[0] == 0u8 {
+            Ok(
+                CurrencyCode::standard([ascii(array[12])?, ascii(array[13])?, ascii(array[14])?])
+                    .map_err(|err| BinaryCodecError::OutOfRange(err.to_string()))?,
+            )
+        } else {
+            Ok(CurrencyCode::non_standard(array)
+                .map_err(|err| BinaryCodecError::OutOfRange(err.to_string()))?)
+        }
+    }
+
     fn read_account_id(&mut self) -> Result<AccountId, BinaryCodecError> {
         let len = self.read_vl_prefix()?;
         if len != 20 {
@@ -311,9 +328,15 @@ impl<B: Buf> Deserializer<B> {
     }
 }
 
+fn ascii(byte: u8) -> Result<AsciiChar, BinaryCodecError> {
+    AsciiChar::from_ascii(byte)
+        .map_err(|err| BinaryCodecError::OutOfRange(format!("Not valid ASCII char: {}", byte)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ascii::AsciiChar;
     use assert_matches::assert_matches;
 
     fn deserializer(bytes: &[u8]) -> Deserializer<&[u8]> {
@@ -482,5 +505,61 @@ mod tests {
         let mut s = deserializer(&[255]);
         let result = s.read_vl_prefix();
         assert_matches!(result, Err(BinaryCodecError::InvalidLength(_)));
+    }
+
+    #[test]
+    fn test_read_currency_code_xrp() {
+        let mut s = deserializer(&[0u8; 20]);
+        let value = s.read_currency_code().unwrap();
+        assert_eq!(value, CurrencyCode::xrp());
+    }
+
+    #[test]
+    fn test_read_currency_code_standard() {
+        let bytes = [
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            AsciiChar::U.as_byte(),
+            AsciiChar::S.as_byte(),
+            AsciiChar::D.as_byte(),
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+            0x00,
+        ];
+        let mut s = deserializer(&bytes);
+        let value = s.read_currency_code().unwrap();
+        assert_eq!(
+            value,
+            CurrencyCode::standard([AsciiChar::U, AsciiChar::S, AsciiChar::D]).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_read_currency_code_non_standard() {
+        let mut s = deserializer(&[
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+        ]);
+        let value = s.read_currency_code().unwrap();
+        assert_eq!(
+            value,
+            CurrencyCode::non_standard([
+                0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+            ])
+            .unwrap()
+        );
     }
 }
