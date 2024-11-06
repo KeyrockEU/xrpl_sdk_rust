@@ -6,7 +6,8 @@ use ascii::AsciiChar;
 use bytes::Buf;
 
 use xrpl_types::{
-    AccountId, Amount, Blob, CurrencyCode, Hash128, Hash160, Hash256, UInt16, UInt32, UInt64, UInt8,
+    AccountId, Amount, Blob, CurrencyCode, DropsAmount, Hash128, Hash160, Hash256, IssuedAmount,
+    IssuedValue, UInt16, UInt32, UInt64, UInt8,
 };
 
 use xrpl_types::deserialize::Deserialize;
@@ -230,6 +231,51 @@ impl<B: Buf> Deserializer<B> {
         }
     }
 
+    /// <https://xrpl.org/docs/references/protocol/binary-format#amount-fields>
+    fn read_drops_or_issued_value(&mut self) -> Result<DropsOrIssuedValue, BinaryCodecError> {
+        const ISSUED_MASK: u64 = 0x8000000000000000;
+        const POSITIVE_MASK: u64 = 0x4000000000000000;
+
+        let value = self.read_uint64()?;
+        if value & ISSUED_MASK == 0 {
+            if value & POSITIVE_MASK == 0 {
+                return Err(BinaryCodecError::OutOfRange(
+                    "Drops amount should have positive bit set".to_string(),
+                ));
+            }
+            let drops_amount = DropsAmount::from_drops(value ^ POSITIVE_MASK)
+                .map_err(|err| BinaryCodecError::OutOfRange(err.to_string()))?;
+            Ok(DropsOrIssuedValue::Drops(drops_amount))
+        } else {
+            if value == ISSUED_MASK {
+                return Ok(DropsOrIssuedValue::Issued(IssuedValue::zero()));
+            }
+
+            let mantissa =
+                (value << 10 >> 10) as i64 * if value & POSITIVE_MASK != 0 { 1 } else { -1 };
+            let exponent = (value << 2 >> 56) as i8 - 97;
+
+            let issued_value = IssuedValue::from_mantissa_exponent(mantissa, exponent)
+                .map_err(|err| BinaryCodecError::OutOfRange(err.to_string()))?;
+            Ok(DropsOrIssuedValue::Issued(issued_value))
+        }
+    }
+
+    fn read_amount(&mut self) -> Result<Amount, BinaryCodecError> {
+        match self.read_drops_or_issued_value()? {
+            DropsOrIssuedValue::Drops(drops_amount) => Ok(Amount::Drops(drops_amount)),
+            DropsOrIssuedValue::Issued(issued_value) => {
+                let currency_code = self.read_currency_code()?;
+                let issuer = self.read_account_id_no_length_prefix()?;
+
+                Ok(Amount::Issued(
+                    IssuedAmount::from_issued_value(issued_value, currency_code, issuer)
+                        .map_err(|err| BinaryCodecError::OutOfRange(err.to_string()))?,
+                ))
+            }
+        }
+    }
+
     /// <https://xrpl.org/docs/references/protocol/binary-format#currency-codes>
     fn read_currency_code(&mut self) -> Result<CurrencyCode, BinaryCodecError> {
         let array = self.read_array::<20>()?;
@@ -328,6 +374,12 @@ impl<B: Buf> Deserializer<B> {
     }
 }
 
+#[derive(Debug, PartialEq)]
+enum DropsOrIssuedValue {
+    Drops(DropsAmount),
+    Issued(IssuedValue),
+}
+
 fn ascii(byte: u8) -> Result<AsciiChar, BinaryCodecError> {
     AsciiChar::from_ascii(byte)
         .map_err(|err| BinaryCodecError::OutOfRange(format!("Not valid ASCII char: {}", byte)))
@@ -338,6 +390,7 @@ mod tests {
     use super::*;
     use ascii::AsciiChar;
     use assert_matches::assert_matches;
+    use xrpl_types::DropsAmount;
 
     fn deserializer(bytes: &[u8]) -> Deserializer<&[u8]> {
         Deserializer::new(bytes)
@@ -561,5 +614,76 @@ mod tests {
             ])
             .unwrap()
         );
+    }
+
+    #[test]
+    fn test_read_drops_amount() {
+        let mut s = deserializer(&[0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x27, 0x10]);
+        let value = s.read_drops_or_issued_value().unwrap();
+        assert_eq!(
+            value,
+            DropsOrIssuedValue::Drops(DropsAmount::from_drops(10_000).unwrap())
+        );
+    }
+
+    #[test]
+    fn test_read_issued_value_zero() {
+        let mut s = deserializer(&[0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        let value = s.read_drops_or_issued_value().unwrap();
+        assert_eq!(value, DropsOrIssuedValue::Issued(IssuedValue::zero()));
+    }
+
+    #[test]
+    fn test_read_issued_value_positive() {
+        let mut s = deserializer(&[0xD5, 0xC3, 0x8D, 0x7E, 0xA4, 0xC6, 0x80, 0x00]);
+        let value = s.read_drops_or_issued_value().unwrap();
+        assert_eq!(
+            value,
+            DropsOrIssuedValue::Issued(
+                IssuedValue::from_mantissa_exponent(1_000_000_000_000_000, -10).unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn test_read_issued_value_negative() {
+        let mut s = deserializer(&[0x95, 0xC3, 0x8D, 0x7E, 0xA4, 0xC6, 0x80, 0x00]);
+        let value = s.read_drops_or_issued_value().unwrap();
+        assert_eq!(
+            value,
+            DropsOrIssuedValue::Issued(
+                IssuedValue::from_mantissa_exponent(-1_000_000_000_000_000, -10).unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn test_read_amount_drop() {
+        let mut s = deserializer(&[0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x27, 0x10]);
+        let value = s.read_amount().unwrap();
+        assert_eq!(value, Amount::drops(10_000).unwrap());
+    }
+
+    #[test]
+    fn test_read_amount_issued() {
+        let mut s = deserializer(&[
+            0xD5, 0xC3, 0x8D, 0x7E, 0xA4, 0xC6, 0x80, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+            0x34, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x12,
+        ]);
+        let value = IssuedValue::from_mantissa_exponent(1_000_000_000_000_000, -10).unwrap();
+        let currency = CurrencyCode::non_standard([
+            0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+        ])
+        .unwrap();
+        let issuer = AccountId([
+            0x34, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x12,
+        ]);
+        let expected_amount = Amount::issued(value, currency, issuer).unwrap();
+        let amount = s.read_amount().unwrap();
+        assert_eq!(amount, expected_amount);
     }
 }
