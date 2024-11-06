@@ -1,5 +1,7 @@
-use crate::alloc::{string::String, vec, vec::Vec};
-use crate::error::BinaryCodecError;
+use crate::{
+    alloc::{string::String, vec, vec::Vec},
+    error::BinaryCodecError,
+};
 use bytes::Buf;
 
 use xrpl_types::{
@@ -150,6 +152,13 @@ impl<B: Buf> Deserializer<B> {
         Ok(bytes)
     }
 
+    fn read_array<const LEN: usize>(&mut self) -> Result<[u8; LEN], BinaryCodecError> {
+        self.check_remaining(LEN, "read_array")?;
+        let mut array = [0; LEN];
+        self.bytes.copy_to_slice(&mut array);
+        Ok(array)
+    }
+
     fn read_uint8(&mut self) -> Result<UInt8, BinaryCodecError> {
         self.read_u8()
     }
@@ -219,6 +228,23 @@ impl<B: Buf> Deserializer<B> {
             ))
         }
     }
+
+    fn read_account_id(&mut self) -> Result<AccountId, BinaryCodecError> {
+        let len = self.read_vl_prefix()?;
+        if len != 20 {
+            return Err(BinaryCodecError::OutOfRange(
+                "AccountID not 20 bytes".into(),
+            ));
+        }
+        let array = self.read_array()?;
+        Ok(AccountId(array))
+    }
+
+    fn read_account_id_no_length_prefix(&mut self) -> Result<AccountId, BinaryCodecError> {
+        let array = self.read_array()?;
+        Ok(AccountId(array))
+    }
+
     //
     // fn read_field_ordinal(&mut self) -> Result<u32, BinaryCodecError> {
     //     let mut type_code = self.read_u8()? as u32;
@@ -379,10 +405,42 @@ mod tests {
         assert_eq!(value, Blob(vec![0x34, 0x00, 0x12]));
     }
 
+    #[test]
+    fn test_read_account_id() {
+        let mut s = deserializer(&[
+            20, 0x34, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x12,
+        ]);
+        let value = s.read_account_id().unwrap();
+        assert_eq!(
+            value,
+            AccountId([
+                0x34, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x12,
+            ])
+        );
+    }
+
+    #[test]
+    fn test_read_account_id_no_length_prefix() {
+        let mut s = deserializer(&[
+            0x34, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x12,
+        ]);
+        let value = s.read_account_id_no_length_prefix().unwrap();
+        assert_eq!(
+            value,
+            AccountId([
+                0x34, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x12,
+            ])
+        );
+    }
+
     /// Tests length prefix according to <https://xrpl.org/serialization.html#length-prefixing>
     #[test]
     #[allow(clippy::erasing_op, clippy::identity_op)]
-    fn test_push_vl_prefix() {
+    fn test_read_vl_prefix() {
         // test range 0 to 192
         let mut s = deserializer(&[0, 1, 192]);
         assert_eq!(s.read_vl_prefix().unwrap(), 0);
