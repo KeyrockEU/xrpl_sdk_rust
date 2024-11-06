@@ -1,12 +1,13 @@
 use crate::alloc::{format, string::ToString, vec::Vec};
 use crate::error::BinaryCodecError;
+use std::io::Write;
 
+use crate::field::{field_info, FieldCode, FieldId, TypeCode};
 use xrpl_types::{
     serialize::{Serialize, SerializeArray},
     AccountId, Amount, Blob, CurrencyCode, DropsAmount, Hash128, Hash160, Hash256, IssuedValue,
     UInt16, UInt32, UInt8, Uint64,
 };
-use crate::field::{field_info, FieldCode, FieldId, TypeCode};
 
 #[derive(Debug, Default)]
 pub struct Serializer {
@@ -211,6 +212,11 @@ impl Serializer {
 
     pub fn into_bytes(self) -> Result<Vec<u8>, BinaryCodecError> {
         let mut bytes = Vec::with_capacity(self.buffer.len());
+        self.into_writer(&mut bytes)?;
+        Ok(bytes)
+    }
+
+    pub fn into_writer(self, mut writer: impl Write) -> Result<(), BinaryCodecError> {
         let mut serialized_fields = self.serialized_fields;
         serialized_fields.sort_by_key(|f| f.field_id);
         for field_pair in serialized_fields.windows(2) {
@@ -221,9 +227,11 @@ impl Serializer {
             }
         }
         for field in serialized_fields {
-            bytes.extend_from_slice(&self.buffer[field.index..field.index + field.length]);
+            writer
+                .write_all(&self.buffer[field.index..field.index + field.length])
+                .map_err(|err| BinaryCodecError::IO(err.to_string()))?;
         }
-        Ok(bytes)
+        Ok(())
     }
 
     fn start_field(
