@@ -1,5 +1,5 @@
 use crate::serialize::Serialize;
-use crate::{AccountId, Amount, Blob, Hash128, Hash160, Hash256, UInt16, UInt32, UInt8, Uint64};
+use crate::{AccountId, Amount, Blob, Hash128, Hash160, Hash256, UInt16, UInt32, UInt8, UInt64};
 use core::fmt;
 
 /// Serialize for XRPL types and objects
@@ -31,7 +31,7 @@ pub trait Serializer {
 
     fn serialize_uint32(&mut self, field_name: &str, uint32: UInt32) -> Result<(), Self::Error>;
 
-    fn serialize_uint64(&mut self, field_name: &str, uint64: Uint64) -> Result<(), Self::Error>;
+    fn serialize_uint64(&mut self, field_name: &str, uint64: UInt64) -> Result<(), Self::Error>;
 
     fn serialize_array(
         &mut self,

@@ -13,7 +13,6 @@ pub enum BinaryCodecError {
     FieldNotFound(String),
     InsufficientBytes(String),
     Overflow,
-    IO(String),
 }
 
 #[cfg(feature = "std")]
@@ -33,7 +32,7 @@ impl fmt::Display for BinaryCodecError {
             Self::FieldNotFound(s) => write!(f, "Field not found: {}", s),
             Self::InsufficientBytes(s) => write!(f, "Insufficient bytes to decode: {}", s),
             Self::Overflow => write!(f, "Bytes overflow"),
-            Self::IO(s) => write!(f, "IO error: {}", s),
         }
     }
 }
+

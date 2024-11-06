@@ -1,12 +1,12 @@
 use crate::alloc::{format, string::ToString, vec::Vec};
 use crate::error::BinaryCodecError;
-use std::io::Write;
-
 use crate::field::{field_info, FieldCode, FieldId, TypeCode};
+use bytes::BufMut;
+use std::io::Write;
 use xrpl_types::{
     serialize::{Serialize, SerializeArray},
     AccountId, Amount, Blob, CurrencyCode, DropsAmount, Hash128, Hash160, Hash256, IssuedValue,
-    UInt16, UInt32, UInt8, Uint64,
+    UInt16, UInt32, UInt8, UInt64,
 };
 
 #[derive(Debug, Default)]
@@ -115,7 +115,7 @@ impl xrpl_types::serialize::Serializer for Serializer {
     fn serialize_uint64(
         &mut self,
         field_name: &str,
-        uint64: Uint64,
+        uint64: UInt64,
     ) -> Result<(), BinaryCodecError> {
         self.serialize_field(field_name, TypeCode::UInt64, |ser| {
             ser.push_uint64(uint64)?;
@@ -212,11 +212,11 @@ impl Serializer {
 
     pub fn into_bytes(self) -> Result<Vec<u8>, BinaryCodecError> {
         let mut bytes = Vec::with_capacity(self.buffer.len());
-        self.into_writer(&mut bytes)?;
+        self.into_buffer(&mut bytes)?;
         Ok(bytes)
     }
 
-    pub fn into_writer(self, mut writer: impl Write) -> Result<(), BinaryCodecError> {
+    pub fn into_buffer(self, mut writer: impl BufMut) -> Result<(), BinaryCodecError> {
         let mut serialized_fields = self.serialized_fields;
         serialized_fields.sort_by_key(|f| f.field_id);
         for field_pair in serialized_fields.windows(2) {
@@ -227,9 +227,7 @@ impl Serializer {
             }
         }
         for field in serialized_fields {
-            writer
-                .write_all(&self.buffer[field.index..field.index + field.length])
-                .map_err(|err| BinaryCodecError::IO(err.to_string()))?;
+            writer.put(&self.buffer[field.index..field.index + field.length]);
         }
         Ok(())
     }
@@ -284,7 +282,7 @@ impl Serializer {
         self.push_slice(&value.to_be_bytes())
     }
 
-    fn push_uint64(&mut self, value: Uint64) -> Result<(), BinaryCodecError> {
+    fn push_uint64(&mut self, value: UInt64) -> Result<(), BinaryCodecError> {
         self.push_slice(&value.to_be_bytes())
     }
 

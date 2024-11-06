@@ -1,5 +1,6 @@
-use crate::{AccountId, Amount, Blob, Hash128, Hash160, Hash256, UInt16, UInt32, UInt8, Uint64};
+use crate::{AccountId, Amount, Blob, Hash128, Hash160, Hash256, UInt16, UInt32, UInt8, UInt64};
 use core::fmt;
+use crate::deserialize::Deserialize;
 
 /// Serialize for XRPL types and objects
 pub trait Deserializer {
@@ -23,5 +24,7 @@ pub trait Deserializer {
 
     fn deserialize_uint32(&mut self, field_name: &str) -> Result<UInt32, Self::Error>;
 
-    fn deserialize_uint64(&mut self, field_name: &str) -> Result<Uint64, Self::Error>;
+    fn deserialize_uint64(&mut self, field_name: &str) -> Result<UInt64, Self::Error>;
+
+    fn deserialize_array<T: Deserialize>(&mut self, array_field_name: &str, object_field_name: &str) -> Result<Vec<T>, Self::Error>;
 }
