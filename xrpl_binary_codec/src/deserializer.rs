@@ -33,8 +33,21 @@ impl DeserError for BinaryCodecError {
 impl<B: Buf> deserialize::Deserializer for Deserializer<B> {
     type Error = BinaryCodecError;
 
-    fn deserialize<V: Visitor>(self, visitor: &mut V) -> Result<(), Self::Error> {
-        todo!()
+    fn deserialize<V: Visitor>(mut self, visitor: &mut V) -> Result<(), Self::Error> {
+        loop {
+            if self.bytes.remaining() == 0 {
+                return Ok(());
+            }
+
+            let field_id = self.read_field_id()?;
+            let field_name = get_field_name(field_id)?;
+            visitor.visit_field(
+                field_name,
+                FieldAccessor {
+                    deserializer: &mut self,
+                },
+            )?;
+        }
     }
 
     fn deserialize_single_field(
@@ -42,13 +55,19 @@ impl<B: Buf> deserialize::Deserializer for Deserializer<B> {
         field_name: &str,
     ) -> Result<FieldAccessor<'_, B>, Self::Error> {
         let field_id = self.read_field_id()?;
-        let field_name = get_field_name(field_id)?;
-        // todo allan check field name
+        let actual_field_name = get_field_name(field_id)?;
+        if field_name != actual_field_name {
+            return Err(BinaryCodecError::InvalidField(format!(
+                "Expected field {}, found {}",
+                field_name, actual_field_name
+            )));
+        }
 
         Ok(FieldAccessor { deserializer: self })
     }
 }
 
+#[derive(Debug)]
 struct FieldAccessor<'a, B> {
     deserializer: &'a mut Deserializer<B>,
 }
@@ -293,11 +312,6 @@ impl<B: Buf> Deserializer<B> {
         let field_code = FieldCode(field_code);
         Ok(FieldId::from_type_field(type_code, field_code))
     }
-
-    // todo allan?
-    // pub fn end(&mut self) -> bool {
-    //     self.bytes.remaining() == 0
-    // }
 
     fn check_remaining(&mut self, len: usize, context: &str) -> Result<(), BinaryCodecError> {
         if self.bytes.remaining() >= len {
@@ -718,6 +732,23 @@ mod tests {
                 .unwrap(),
             34
         );
+    }
+
+    #[test]
+    fn test_deserialize_field_wrong_name() {
+        let mut s = deserializer(&[
+            0b0010_0001, // NetworkID field
+            0,
+            0,
+            0,
+            12,
+        ]);
+
+        let result = s.deserialize_single_field("Flags");
+
+        assert_matches!(result, Err(BinaryCodecError::InvalidField(message)) => {
+            assert!(message.contains("Expected field"), "message: {}", message);
+        });
     }
 
     /// Tests the example <https://xrpl.org/serialization.html#examples>
