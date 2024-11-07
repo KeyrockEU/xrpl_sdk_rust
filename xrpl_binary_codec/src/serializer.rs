@@ -153,8 +153,7 @@ impl<'a> SerializeArray for ArraySerializer<'a> {
         self.serializer.push_field_id(field_id)?;
         let mut object_serializer = Serializer::new();
         object.serialize(&mut object_serializer)?;
-        self.serializer
-            .push_slice(&object_serializer.into_bytes()?)?;
+        object_serializer.into_buffer(&mut self.serializer.buffer)?;
         self.serializer
             .push_field_id(FieldId::from_type_field(TypeCode::Object, FieldCode(1)))?;
         Ok(())

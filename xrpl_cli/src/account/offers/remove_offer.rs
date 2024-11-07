@@ -3,7 +3,7 @@ use libsecp256k1::{PublicKey, SecretKey};
 
 use xrpl_binary_codec::{serialize, sign};
 use xrpl_http_client::{Client, SubmitRequest};
-use xrpl_types::{AccountId, OfferCancelTransaction, Transaction};
+use xrpl_types::{AccountId, OfferCancelTransaction, TransactionTrait};
 
 // xrpl account <ADDRESS> --public-key="..." --secret-key="..." offers remove <OFFER_SEQUENCE>
 

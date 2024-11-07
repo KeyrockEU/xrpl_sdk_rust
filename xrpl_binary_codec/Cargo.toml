@@ -16,6 +16,7 @@ libsecp256k1 = { workspace = true, features = [
     "static-context",
     "hmac",
 ] }
+ascii = { workspace = true, features = ["alloc"] }
 bytes = { version = "1.5.0", default-features = false }
 
 # The following dependencies are only used when compiling for `no_std`.
@@ -27,7 +28,7 @@ spin = { version = "0.9.8", default-features = false, features = ["once"] }
 
 [features]
 default = ["std"]
-std = ["xrpl_types/std", "hex/std", "sha2/std", "libsecp256k1/std", "bytes/std" ]
+std = ["xrpl_types/std", "hex/std", "sha2/std", "libsecp256k1/std", "bytes/std", "ascii/std" ]
 
 [dev-dependencies]
 ascii.workspace = true

@@ -1,5 +1,5 @@
 use crate::serialize::{Serialize, Serializer};
-use crate::{AccountId, Amount, Transaction, TransactionCommon, TransactionType, UInt32};
+use crate::{AccountId, Amount, TransactionTrait, TransactionCommon, TransactionType, UInt32};
 use enumflags2::{bitflags, BitFlags};
 
 /// An `OfferCreate` transaction <https://xrpl.org/offercreate.html>
@@ -26,7 +26,7 @@ impl OfferCreateTransaction {
     }
 }
 
-impl Transaction for OfferCreateTransaction {
+impl TransactionTrait for OfferCreateTransaction {
     fn common(&self) -> &TransactionCommon {
         &self.common
     }

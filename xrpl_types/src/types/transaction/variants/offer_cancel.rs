@@ -1,5 +1,5 @@
 use crate::serialize::{Serialize, Serializer};
-use crate::{AccountId, Transaction, TransactionCommon, TransactionType, UInt32};
+use crate::{AccountId, TransactionTrait, TransactionCommon, TransactionType, UInt32};
 use enumflags2::{bitflags, BitFlags};
 
 /// An `OfferCancel` transaction <https://xrpl.org/offercancel.html>
@@ -20,7 +20,7 @@ impl OfferCancelTransaction {
     }
 }
 
-impl Transaction for OfferCancelTransaction {
+impl TransactionTrait for OfferCancelTransaction {
     fn common(&self) -> &TransactionCommon {
         &self.common
     }

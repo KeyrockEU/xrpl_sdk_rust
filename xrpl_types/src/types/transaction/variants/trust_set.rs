@@ -1,6 +1,6 @@
 use crate::serialize::{Serialize, Serializer};
 use crate::{
-    AccountId, Amount, IssuedAmount, Transaction, TransactionCommon, TransactionType, UInt32,
+    AccountId, Amount, IssuedAmount, TransactionTrait, TransactionCommon, TransactionType, UInt32,
 };
 use enumflags2::{bitflags, BitFlags};
 
@@ -26,7 +26,7 @@ impl TrustSetTransaction {
     }
 }
 
-impl Transaction for TrustSetTransaction {
+impl TransactionTrait for TrustSetTransaction {
     fn common(&self) -> &TransactionCommon {
         &self.common
     }

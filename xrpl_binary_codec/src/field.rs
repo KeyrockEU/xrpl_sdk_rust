@@ -27,6 +27,26 @@ impl fmt::Display for TypeCode {
     }
 }
 
+impl TypeCode {
+    pub fn from_discriminant_opt(disc: u8) -> Option<Self> {
+        match disc {
+            8 => Some(Self::AccountId),
+            6 => Some(Self::Amount),
+            7 => Some(Self::Blob),
+            4 => Some(Self::Hash128),
+            17 => Some(Self::Hash160),
+            5 => Some(Self::Hash256),
+            16 => Some(Self::UInt8),
+            1 => Some(Self::UInt16),
+            2 => Some(Self::UInt32),
+            3 => Some(Self::UInt64),
+            15 => Some(Self::Array),
+            14 => Some(Self::Object),
+            _ => None,
+        }
+    }
+}
+
 /// Field code <https://xrpl.org/serialization.html#field-codes>. The code for a given field can be found at
 /// <https://github.com/XRPLF/xrpl.js/blob/main/packages/ripple-binary-codec/src/enums/definitions.json> or
 /// <https://github.com/XRPLF/rippled/blob/72e6005f562a8f0818bc94803d222ac9345e1e40/src/ripple/protocol/impl/SField.cpp#L72-L266>
@@ -56,4 +76,3 @@ impl FieldId {
         }
     }
 }
-

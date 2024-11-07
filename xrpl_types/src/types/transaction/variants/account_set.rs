@@ -1,8 +1,6 @@
+use crate::deserialize::{DeserError, Deserialize, Deserializer, FieldAccessor};
 use crate::serialize::{Serialize, Serializer};
-use crate::{
-    AccountId, Blob, Hash128, Hash256, Transaction, TransactionCommon, TransactionType, UInt32,
-    UInt8,
-};
+use crate::{deserialize, AccountId, Blob, Hash128, Hash256, TransactionCommon, TransactionCommonVisitor, TransactionTrait, TransactionType, UInt32, UInt8};
 use enumflags2::{bitflags, BitFlags};
 
 /// An `AccountSet` transaction <https://xrpl.org/accountset.html>
@@ -41,7 +39,7 @@ impl AccountSetTransaction {
     }
 }
 
-impl Transaction for AccountSetTransaction {
+impl TransactionTrait for AccountSetTransaction {
     fn common(&self) -> &TransactionCommon {
         &self.common
     }
@@ -122,5 +120,103 @@ impl Serialize for AccountSetTransaction {
             s.serialize_uint32("WalletSize", wallet_size)?;
         }
         Ok(())
+    }
+}
+
+impl Deserialize for AccountSetTransaction {
+    fn deserialize<S: Deserializer>(&self, deserializer: S) -> Result<Self, S::Error>
+    where
+        Self: Sized,
+    {
+        #[derive(Default)]
+        struct Visitor {
+            common: TransactionCommonVisitor,
+            flags: BitFlags<AccountSetTransactionFlags>,
+            clear_flag: Option<AccountSetFlag>,
+            domain: Option<Blob>,
+            email_hash: Option<Hash128>,
+            message_key: Option<Blob>,
+            nf_token_minter: Option<Blob>,
+            set_flag: Option<AccountSetFlag>,
+            transfer_rate: Option<UInt32>,
+            tick_size: Option<UInt8>,
+            wallet_locator: Option<Hash256>,
+            wallet_size: Option<UInt32>,
+        }
+
+        impl deserialize::Visitor for Visitor {
+            fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
+                &mut self,
+                field_name: &str,
+                mut field_accessor: F,
+            ) -> Result<(), E> {
+                match field_name {
+                    "TransactionType" => {
+                        if field_accessor.deserialize_uint16()?
+                            != TransactionType::AccountSet as u16
+                        {
+                            return Err(E::invalid_value("Wrong transaction type"));
+                        }
+                    }
+                    "Flags" => {
+                        self.flags = BitFlags::from_bits(field_accessor.deserialize_uint32()?)
+                            .map_err(E::invalid_value)?;
+                    }
+                    "ClearFlag" => {
+                        self.clear_flag = Some(field_accessor.deserialize_uint32()?);
+                    }
+                    "Domain" => {
+                        self.domain = Some(field_accessor.deserialize_blob()?);
+                    }
+                    "EmailHash" => {
+                        self.email_hash = Some(field_accessor.deserialize_hash128()?);
+                    }
+                    "MessageKey" => {
+                        self.message_key = Some(field_accessor.deserialize_blob()?);
+                    }
+                    "NFTokenMinter" => {
+                        self.nf_token_minter = Some(field_accessor.deserialize_blob()?);
+                    }
+                    "SetFlag" => {
+                        self.set_flag = Some(field_accessor.deserialize_uint32()?);
+                    }
+                    "TransferRate" => {
+                        self.transfer_rate = Some(field_accessor.deserialize_uint32()?);
+                    }
+                    "TickSize" => {
+                        self.tick_size = Some(field_accessor.deserialize_uint8()?);
+                    }
+                    "WalletLocator" => {
+                        self.wallet_locator = Some(field_accessor.deserialize_hash256()?);
+                    }
+                    "WalletSize" => {
+                        self.wallet_size = Some(field_accessor.deserialize_uint32()?);
+                    }
+                    _ => {
+                        self.common.visit_field(field_name, field_accessor)?;
+                    }
+                }
+                Ok(())
+            }
+        }
+
+        let mut visitor = Visitor::default();
+
+        deserializer.deserialize(&mut visitor)?;
+
+        Ok(AccountSetTransaction {
+            common: visitor.common.into_transaction_common()?,
+            flags: visitor.flags,
+            clear_flag: visitor.clear_flag,
+            domain: visitor.domain,
+            email_hash: visitor.email_hash,
+            message_key: visitor.message_key,
+            nf_token_minter: visitor.nf_token_minter,
+            set_flag: visitor.set_flag,
+            transfer_rate: visitor.transfer_rate,
+            tick_size: visitor.tick_size,
+            wallet_locator: visitor.wallet_locator,
+            wallet_size: visitor.wallet_size,
+        })
     }
 }
