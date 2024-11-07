@@ -17,7 +17,7 @@ pub trait DeserError: fmt::Debug + fmt::Display + Sized {
 /// Deserializes XRPL objects to a [`Deserializer`]
 pub trait Deserialize {
     /// Deserialize the object
-    fn deserialize<S: Deserializer>(&self, deserializer: S) -> Result<Self, S::Error>
+    fn deserialize<S: Deserializer>(deserializer: S) -> Result<Self, S::Error>
     where
         Self: Sized;
 }
@@ -30,7 +30,7 @@ pub trait Deserializer {
     fn deserialize<V: Visitor>(self, visitor: &mut V) -> Result<(), Self::Error>;
 
     /// Deserialize single field in order
-    fn deserialize_single_field(&mut self, field_name: &str) -> Result<impl FieldAccessor, Self::Error>;
+    fn deserialize_single_field(&mut self, field_name: &str) -> Result<impl FieldAccessor<Error = Self::Error>, Self::Error>;
 
     // fn deserialize_array<T: Deserialize>(&mut self, array_field_name: &str, object_field_name: &str) -> Result<Vec<T>, Self::Error>;
 }

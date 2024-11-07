@@ -57,7 +57,7 @@ impl Serialize for AccountDeleteTransaction {
 }
 
 impl Deserialize for AccountDeleteTransaction {
-    fn deserialize<S: Deserializer>(&self, deserializer: S) -> Result<Self, S::Error>
+    fn deserialize<S: Deserializer>(deserializer: S) -> Result<Self, S::Error>
     where
         Self: Sized,
     {

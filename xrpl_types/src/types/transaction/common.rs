@@ -179,7 +179,7 @@ impl TransactionCommonVisitor {
 }
 
 impl Deserialize for TransactionCommon {
-    fn deserialize<S: Deserializer>(&self, deserializer: S) -> Result<Self, S::Error>
+    fn deserialize<S: Deserializer>(deserializer: S) -> Result<Self, S::Error>
     where
         Self: Sized,
     {

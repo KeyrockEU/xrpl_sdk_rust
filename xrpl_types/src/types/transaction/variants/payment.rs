@@ -1,6 +1,7 @@
 use crate::serialize::{Serialize, Serializer};
-use crate::{AccountId, Amount, Hash256, TransactionTrait, TransactionCommon, TransactionType, UInt32};
+use crate::{AccountId, Amount, Hash256, TransactionTrait, TransactionCommon, TransactionType, UInt32, TransactionCommonVisitor, deserialize};
 use enumflags2::{bitflags, BitFlags};
+use crate::deserialize::{DeserError, Deserialize, Deserializer, FieldAccessor};
 
 /// An `Payment` transaction <https://xrpl.org/payment.html>
 #[derive(Debug, Clone)]
@@ -73,3 +74,83 @@ impl Serialize for PaymentTransaction {
         Ok(())
     }
 }
+
+
+impl Deserialize for PaymentTransaction {
+    fn deserialize<S: Deserializer>(deserializer: S) -> Result<Self, S::Error>
+    where
+        Self: Sized,
+    {
+        #[derive(Default)]
+        struct Visitor {
+            common: TransactionCommonVisitor,
+            flags: BitFlags<PaymentFlags>,
+            amount: Option<Amount>,
+            destination: Option<AccountId>,
+            destination_tag: Option<UInt32>,
+            invoice_id: Option<Hash256>,
+            send_max: Option<Amount>,
+            deliver_min: Option<Amount>,
+        }
+
+        impl deserialize::Visitor for Visitor {
+            fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
+                &mut self,
+                field_name: &str,
+                mut field_accessor: F,
+            ) -> Result<(), E> {
+                match field_name {
+                    "TransactionType" => {
+                        if field_accessor.deserialize_uint16()?
+                            != TransactionType::Payment as u16
+                        {
+                            return Err(E::invalid_value("Wrong transaction type"));
+                        }
+                    }
+                    "Flags" => {
+                        self.flags = BitFlags::from_bits(field_accessor.deserialize_uint32()?)
+                            .map_err(E::invalid_value)?;
+                    }
+                    "Amount" => {
+                        self.amount = Some(field_accessor.deserialize_amount()?);
+                    }
+                    "Destination" => {
+                        self.destination = Some(field_accessor.deserialize_account_id()?);
+                    }
+                    "DestinationTag" => {
+                        self.destination_tag = Some(field_accessor.deserialize_uint32()?);
+                    }
+                    "InvoiceID" => {
+                        self.invoice_id = Some(field_accessor.deserialize_hash256()?);
+                    }
+                    "SendMax" => {
+                        self.send_max = Some(field_accessor.deserialize_amount()?);
+                    }
+                    "DeliverMin" => {
+                        self.deliver_min = Some(field_accessor.deserialize_amount()?);
+                    }
+                    _ => {
+                        self.common.visit_field(field_name, field_accessor)?;
+                    }
+                }
+                Ok(())
+            }
+        }
+
+        let mut visitor = Visitor::default();
+
+        deserializer.deserialize(&mut visitor)?;
+
+        Ok(PaymentTransaction {
+            common: visitor.common.into_transaction_common()?,
+            flags: visitor.flags,
+            amount: S::Error::unwrap_field_value("Amount", visitor.amount)?,
+            destination: S::Error::unwrap_field_value("Destination", visitor.destination)?,
+            destination_tag: visitor.destination_tag,
+            invoice_id: visitor.invoice_id,
+            send_max: visitor.send_max,
+            deliver_min: visitor.deliver_min,
+        })
+    }
+}
+

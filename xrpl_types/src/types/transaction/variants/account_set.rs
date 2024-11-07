@@ -1,6 +1,9 @@
 use crate::deserialize::{DeserError, Deserialize, Deserializer, FieldAccessor};
 use crate::serialize::{Serialize, Serializer};
-use crate::{deserialize, AccountId, Blob, Hash128, Hash256, TransactionCommon, TransactionCommonVisitor, TransactionTrait, TransactionType, UInt32, UInt8};
+use crate::{
+    deserialize, AccountId, Blob, Hash128, Hash256, TransactionCommon, TransactionCommonVisitor,
+    TransactionTrait, TransactionType, UInt32, UInt8,
+};
 use enumflags2::{bitflags, BitFlags};
 
 /// An `AccountSet` transaction <https://xrpl.org/accountset.html>
@@ -70,6 +73,29 @@ pub enum AccountSetFlag {
     RequireDest = 1,
 }
 
+impl AccountSetFlag {
+    pub fn from_discriminant_opt(disc: u32) -> Option<Self> {
+        match disc {
+            5 => Some(Self::AccountTxnID),
+            16 => Some(Self::AllowTrustLineClawback),
+            10 => Some(Self::AuthorizedNFTokenMinter),
+            8 => Some(Self::DefaultRipple),
+            9 => Some(Self::DepositAuth),
+            4 => Some(Self::DisableMaster),
+            13 => Some(Self::DisallowIncomingCheck),
+            12 => Some(Self::DisallowIncomingNFTokenOffer),
+            14 => Some(Self::DisallowIncomingPayChan),
+            15 => Some(Self::DisallowIncomingTrustline),
+            3 => Some(Self::DisallowXRP),
+            7 => Some(Self::GlobalFreeze),
+            6 => Some(Self::NoFreeze),
+            2 => Some(Self::RequireAuth),
+            1 => Some(Self::RequireDest),
+            _ => None,
+        }
+    }
+}
+
 /// `AccountSet` flags <https://xrpl.org/accountset.html#accountset-flags>
 #[bitflags]
 #[repr(u32)]
@@ -124,7 +150,7 @@ impl Serialize for AccountSetTransaction {
 }
 
 impl Deserialize for AccountSetTransaction {
-    fn deserialize<S: Deserializer>(&self, deserializer: S) -> Result<Self, S::Error>
+    fn deserialize<S: Deserializer>(deserializer: S) -> Result<Self, S::Error>
     where
         Self: Sized,
     {
@@ -163,7 +189,15 @@ impl Deserialize for AccountSetTransaction {
                             .map_err(E::invalid_value)?;
                     }
                     "ClearFlag" => {
-                        self.clear_flag = Some(field_accessor.deserialize_uint32()?);
+                        let clear_flag = field_accessor.deserialize_uint32()?;
+                        self.clear_flag = Some(
+                            AccountSetFlag::from_discriminant_opt(clear_flag).ok_or_else(|| {
+                                E::invalid_value(format!(
+                                    "Unknown account set flag: {}",
+                                    clear_flag
+                                ))
+                            })?,
+                        );
                     }
                     "Domain" => {
                         self.domain = Some(field_accessor.deserialize_blob()?);
@@ -178,7 +212,12 @@ impl Deserialize for AccountSetTransaction {
                         self.nf_token_minter = Some(field_accessor.deserialize_blob()?);
                     }
                     "SetFlag" => {
-                        self.set_flag = Some(field_accessor.deserialize_uint32()?);
+                        let set_flag = field_accessor.deserialize_uint32()?;
+                        self.set_flag = Some(
+                            AccountSetFlag::from_discriminant_opt(set_flag).ok_or_else(|| {
+                                E::invalid_value(format!("Unknown account set flag: {}", set_flag))
+                            })?,
+                        );
                     }
                     "TransferRate" => {
                         self.transfer_rate = Some(field_accessor.deserialize_uint32()?);

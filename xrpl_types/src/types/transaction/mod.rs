@@ -1,9 +1,9 @@
 mod common;
 mod variants;
 
-use crate::deserialize;
+use crate::deserialize::FieldAccessor;
 use crate::deserialize::{DeserError, Deserialize, Deserializer};
-use crate::serialize::{Serialize, Serializer};
+use crate::serialize::{Serialize};
 pub use common::*;
 pub use variants::*;
 
@@ -154,63 +154,95 @@ pub enum Transaction {
 }
 
 impl Deserialize for Transaction {
-    fn deserialize<S: Deserializer>(&self, mut deserializer: S) -> Result<Self, S::Error>
+    fn deserialize<S: Deserializer>(mut deserializer: S) -> Result<Self, S::Error>
     where
         Self: Sized,
     {
-        let txn_type = deserializer.deserialize_single_field("TransactionType")?.deserialize_uint16()?;
-        let txn_type = TransactionType::from_discriminant_opt(txn_type).ok_or_else(|| S::Error::invalid_value(format!("Unknown transaction type: {}", txn_type)))?;
-        // match txn_type {
-            // TransactionType::Payment =>
-            // TransactionType::EscrowCreate => {}
-            // TransactionType::EscrowFinish => {}
-            // TransactionType::AccountSet => {}
-            // TransactionType::EscrowCancel => {}
-            // TransactionType::SetRegularKey => {}
-            // TransactionType::NickNameSet => {}
-            // TransactionType::OfferCreate => {}
-            // TransactionType::OfferCancel => {}
-            // TransactionType::Contract => {}
-            // TransactionType::TicketCreate => {}
-            // TransactionType::TicketCancel => {}
-            // TransactionType::SignerListSet => {}
-            // TransactionType::PaymentChannelCreate => {}
-            // TransactionType::PaymentChannelFund => {}
-            // TransactionType::PaymentChannelClaim => {}
-            // TransactionType::CheckCreate => {}
-            // TransactionType::CheckCash => {}
-            // TransactionType::CheckCancel => {}
-            // TransactionType::DepositPreauth => {}
-            // TransactionType::TrustSet => {}
-            // TransactionType::AccountDelete => {}
-            // TransactionType::SetHook => {}
-            // TransactionType::NFTokenMint => {}
-            // TransactionType::NFTokenBurn => {}
-            // TransactionType::NFTokenCreateOffer => {}
-            // TransactionType::NFTokenCancelOffer => {}
-            // TransactionType::NFTokenAcceptOffer => {}
-            // TransactionType::Clawback => {}
-            // TransactionType::AMMCreate => {}
-            // TransactionType::AMMDeposit => {}
-            // TransactionType::AMMWithdraw => {}
-            // TransactionType::AMMVote => {}
-            // TransactionType::AMMBid => {}
-            // TransactionType::AMMDelete => {}
-            // TransactionType::XChainCreateClaimID => {}
-            // TransactionType::XChainCommit => {}
-            // TransactionType::XChainClaim => {}
-            // TransactionType::XChainAccountCreateCommit => {}
-            // TransactionType::XChainAddClaimAttestation => {}
-            // TransactionType::XChainAddAccountCreateAttestation => {}
-            // TransactionType::XChainModifyBridge => {}
-            // TransactionType::XChainCreateBridge => {}
-            // TransactionType::DIDSet => {}
-            // TransactionType::DIDDelete => {}
-            // TransactionType::EnableAmendment => {}
-            // TransactionType::SetFee => {}
-            // TransactionType::UNLModify => {}
-        // }
-            todo!()
-
+        let txn_type = deserializer
+            .deserialize_single_field("TransactionType")?
+            .deserialize_uint16()?;
+        let txn_type = TransactionType::from_discriminant_opt(txn_type).ok_or_else(|| {
+            S::Error::invalid_value(format!("Unknown transaction type: {}", txn_type))
+        })?;
+        Ok(match txn_type {
+            TransactionType::Payment => {
+                Self::Payment(PaymentTransaction::deserialize(deserializer)?)
+            }
+            TransactionType::EscrowCreate => {
+                Self::EscrowCreate(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::EscrowFinish => {
+                Self::EscrowFinish(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::AccountSet => {
+                Self::AccountSet(AccountSetTransaction::deserialize(deserializer)?)
+            }
+            TransactionType::EscrowCancel => {
+                Self::EscrowCancel(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::SetRegularKey => {
+                Self::SetRegularKey(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::OfferCreate => {
+                Self::OfferCreate(OfferCreateTransaction::deserialize(deserializer)?)
+            }
+            TransactionType::OfferCancel => {
+                Self::OfferCancel(OfferCancelTransaction::deserialize(deserializer)?)
+            }
+            TransactionType::TicketCreate => {
+                Self::TicketCreate(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::SignerListSet => {
+                Self::SignerListSet(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::PaymentChannelCreate => {
+                Self::PaymentChannelCreate(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::PaymentChannelFund => {
+                Self::PaymentChannelFund(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::PaymentChannelClaim => {
+                Self::PaymentChannelClaim(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::CheckCreate => {
+                Self::CheckCreate(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::CheckCash => {
+                Self::CheckCash(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::CheckCancel => {
+                Self::CheckCancel(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::DepositPreauth => {
+                Self::DepositPreauth(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::TrustSet => {
+                Self::TrustSet(TrustSetTransaction::deserialize(deserializer)?)
+            }
+            TransactionType::AccountDelete => {
+                Self::AccountDelete(AccountDeleteTransaction::deserialize(deserializer)?)
+            }
+            TransactionType::NFTokenMint => {
+                Self::NFTokenMint(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::NFTokenBurn => {
+                Self::NFTokenBurn(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::NFTokenCreateOffer => {
+                Self::NFTokenCreateOffer(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::NFTokenCancelOffer => {
+                Self::NFTokenCancelOffer(TransactionCommon::deserialize(deserializer)?)
+            }
+            TransactionType::NFTokenAcceptOffer => {
+                Self::NFTokenAcceptOffer(TransactionCommon::deserialize(deserializer)?)
+            }
+            _ => {
+                return Err(S::Error::invalid_value(format!(
+                    "Unknown transaction type: {:?}",
+                    txn_type
+                )))
+            }
+        })
     }
 }
