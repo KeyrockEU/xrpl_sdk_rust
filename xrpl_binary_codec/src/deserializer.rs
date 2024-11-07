@@ -347,7 +347,8 @@ mod tests {
     use assert_matches::assert_matches;
     use enumflags2::BitFlags;
     use xrpl_types::deserialize::{Deserializer, FieldAccessor};
-    use xrpl_types::{DropsAmount, OfferCreateTransaction};
+    use xrpl_types::{AccountSetTransaction, DropsAmount, OfferCreateTransaction, Transaction};
+    use crate::serialize;
 
     fn deserializer(bytes: &[u8]) -> super::Deserializer<&[u8]> {
         super::Deserializer::new(bytes)
@@ -783,5 +784,14 @@ mod tests {
         assert_eq!(txn.expiration, Some(595640108));
         assert_eq!(txn.flags, BitFlags::from_bits(524288).unwrap());
         assert_eq!(txn.offer_sequence, Some(1752791));
+    }
+
+    #[test]
+    fn test_deserialize_as_transaction() {
+        let txn_orig = AccountSetTransaction::new(AccountId::from_address("rMBzp8CgpE441cp5PVyA9rpVV7oT8hP3ys").unwrap());
+        let txn: Transaction = crate::deserialize::deserialize(&serialize::serialize(&txn_orig).unwrap()).unwrap();
+        assert_matches!(txn, Transaction::AccountSet(txn) => {
+            assert_eq!(txn.common.account, AccountId::from_address("rMBzp8CgpE441cp5PVyA9rpVV7oT8hP3ys").unwrap());
+        });
     }
 }
