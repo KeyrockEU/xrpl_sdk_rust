@@ -7,24 +7,49 @@ use hashbrown::HashMap;
 use crate::field::FieldId;
 
 #[cfg(feature = "std")]
-static FIELD_INFO: std::sync::OnceLock<HashMap<String, FieldId>> = std::sync::OnceLock::new();
+static FIELD_NAME_TO_FIELD_ID: std::sync::OnceLock<HashMap<String, FieldId>> = std::sync::OnceLock::new();
 
 #[cfg(feature = "std")]
-pub fn field_info_lookup() -> &'static HashMap<String, FieldId> {
-    FIELD_INFO.get_or_init(create_field_name_map)
+pub fn field_name_to_field_id() -> &'static HashMap<String, FieldId> {
+    FIELD_NAME_TO_FIELD_ID.get_or_init(create_field_name_to_field_id_map)
 }
 
 #[cfg(not(feature = "std"))]
-static FIELD_INFO: spin::Once<HashMap<String, FieldInfo>> = spin::Once::new();
+static FIELD_NAME_TO_FIELD_ID: spin::Once<HashMap<String, FieldId>> = spin::Once::new();
 
 #[cfg(not(feature = "std"))]
-pub fn field_info_lookup() -> &'static HashMap<String, FieldInfo> {
-    FIELD_INFO.call_once(|| create_field_name_map())
+pub fn field_name_to_field_id() -> &'static HashMap<String, FieldId> {
+    FIELD_NAME_TO_FIELD_ID.call_once(|| create_field_name_to_field_id_map())
 }
 
 pub fn field_id_by_name(field_name: &str) -> Option<&'static FieldId> {
-    field_info_lookup().get(field_name)
+    field_name_to_field_id().get(field_name)
 }
+
+#[cfg(feature = "std")]
+static FIELD_ID_TO_FIELD_NAME: std::sync::OnceLock<HashMap<FieldId, String>> = std::sync::OnceLock::new();
+
+#[cfg(feature = "std")]
+pub fn field_id_to_field_name() -> &'static HashMap<FieldId, String> {
+    FIELD_ID_TO_FIELD_NAME.get_or_init(|| create_field_id_to_field_name_map())
+}
+
+#[cfg(not(feature = "std"))]
+static FIELD_ID_TO_FIELD_NAME: spin::Once<HashMap<FieldId, String>> = spin::Once::new();
+
+#[cfg(not(feature = "std"))]
+pub fn field_id_to_field_name() -> &'static HashMap<FieldId, String> {
+    FIELD_ID_TO_FIELD_NAME.call_once(|| create_field_id_to_field_name_map())
+}
+
+pub fn field_name_by_id(field_id: FieldId) -> Option<&'static str> {
+    field_id_to_field_name().get(&field_id).map(|s| s.as_str())
+}
+
+fn create_field_id_to_field_name_map() -> HashMap<FieldId, String> {
+    field_name_to_field_id().clone().into_iter().map(|(k, v)|(v, k)).collect()
+}
+
 
 macro_rules! insert_field_by_name {
     ($map:ident, $field_name:literal, $field_code:literal, $field_type:ident) => {
@@ -44,7 +69,7 @@ macro_rules! insert_field_by_name {
 }
 
 /// Field info taken from FIELDS in <https://github.com/XRPLF/xrpl.js/blob/main/packages/ripple-binary-codec/src/enums/definitions.json>
-fn create_field_name_map() -> HashMap<String, FieldId> {
+fn create_field_name_to_field_id_map() -> HashMap<String, FieldId> {
     let mut map = HashMap::new();
     insert_field_by_name!(map, "CloseResolution", 1, UInt8);
     insert_field_by_name!(map, "Method", 2, UInt8);

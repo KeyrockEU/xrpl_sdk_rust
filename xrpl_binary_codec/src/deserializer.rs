@@ -1,28 +1,99 @@
 use crate::{
-    alloc::{string::String, vec, vec::Vec},
+    alloc::{format, vec, vec::Vec},
     error::BinaryCodecError,
 };
 use ascii::AsciiChar;
 use bytes::Buf;
+use core::fmt::Display;
 
 use xrpl_types::{
-    AccountId, Amount, Blob, CurrencyCode, DropsAmount, Hash128, Hash160, Hash256, IssuedAmount,
-    IssuedValue, UInt16, UInt32, UInt64, UInt8,
+    deserialize, AccountId, Amount, Blob, CurrencyCode, DropsAmount, Hash128, Hash160, Hash256,
+    IssuedAmount, IssuedValue, UInt16, UInt32, UInt64, UInt8,
 };
 
-use crate::field::{FieldCode, FieldId, TypeCode};
-use xrpl_types::deserialize::{Deserialize, Visitor};
+use crate::alloc::string::ToString;
+use crate::field::{field_info, FieldCode, FieldId, TypeCode};
+use xrpl_types::deserialize::{DeserError, Deserialize, Visitor};
 
 #[derive(Debug, Clone, Default)]
 pub struct Deserializer<B> {
     bytes: B,
 }
 
-impl<B: Buf> xrpl_types::deserialize::Deserializer for Deserializer<B> {
+impl DeserError for BinaryCodecError {
+    fn missing_field(field: &str) -> Self {
+        BinaryCodecError::InvalidField(field.to_string())
+    }
+
+    fn invalid_value(msg: impl Display) -> Self {
+        BinaryCodecError::OutOfRange(msg.to_string())
+    }
+}
+
+impl<B: Buf> deserialize::Deserializer for Deserializer<B> {
     type Error = BinaryCodecError;
 
     fn deserialize<V: Visitor>(self, visitor: &mut V) -> Result<(), Self::Error> {
         todo!()
+    }
+
+    fn deserialize_single_field(
+        &mut self,
+        field_name: &str,
+    ) -> Result<FieldAccessor<'_, B>, Self::Error> {
+        let field_id = self.read_field_id()?;
+        let field_name = get_field_name(field_id)?;
+        // todo allan check field name
+
+        Ok(FieldAccessor { deserializer: self })
+    }
+}
+
+struct FieldAccessor<'a, B> {
+    deserializer: &'a mut Deserializer<B>,
+}
+
+impl<'a, B: Buf> deserialize::FieldAccessor for FieldAccessor<'a, B> {
+    type Error = BinaryCodecError;
+
+    fn deserialize_account_id(&mut self) -> Result<AccountId, Self::Error> {
+        self.deserializer.read_account_id()
+    }
+
+    fn deserialize_amount(&mut self) -> Result<Amount, Self::Error> {
+        self.deserializer.read_amount()
+    }
+
+    fn deserialize_blob(&mut self) -> Result<Blob, Self::Error> {
+        self.deserializer.read_blob()
+    }
+
+    fn deserialize_hash128(&mut self) -> Result<Hash128, Self::Error> {
+        self.deserializer.read_h128()
+    }
+
+    fn deserialize_hash160(&mut self) -> Result<Hash160, Self::Error> {
+        self.deserializer.read_h160()
+    }
+
+    fn deserialize_hash256(&mut self) -> Result<Hash256, Self::Error> {
+        self.deserializer.read_h256()
+    }
+
+    fn deserialize_uint8(&mut self) -> Result<UInt8, Self::Error> {
+        self.deserializer.read_uint8()
+    }
+
+    fn deserialize_uint16(&mut self) -> Result<UInt16, Self::Error> {
+        self.deserializer.read_uint16()
+    }
+
+    fn deserialize_uint32(&mut self) -> Result<UInt32, Self::Error> {
+        self.deserializer.read_uint32()
+    }
+
+    fn deserialize_uint64(&mut self) -> Result<UInt64, Self::Error> {
+        self.deserializer.read_uint64()
     }
 }
 
@@ -248,16 +319,24 @@ fn ascii(byte: u8) -> Result<AsciiChar, BinaryCodecError> {
         .map_err(|err| BinaryCodecError::OutOfRange(format!("Not valid ASCII char: {}", byte)))
 }
 
+pub fn get_field_name(field_id: FieldId) -> Result<&'static str, BinaryCodecError> {
+    field_info::field_name_by_id(field_id).ok_or_else(|| {
+        BinaryCodecError::InvalidField(format!("Field with id {:?} is not known", field_id))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::field::{FieldCode, TypeCode};
     use ascii::AsciiChar;
     use assert_matches::assert_matches;
-    use xrpl_types::DropsAmount;
+    use enumflags2::BitFlags;
+    use xrpl_types::deserialize::{Deserializer, FieldAccessor};
+    use xrpl_types::{DropsAmount, OfferCreateTransaction};
 
-    fn deserializer(bytes: &[u8]) -> Deserializer<&[u8]> {
-        Deserializer::new(bytes)
+    fn deserializer(bytes: &[u8]) -> super::Deserializer<&[u8]> {
+        super::Deserializer::new(bytes)
     }
 
     #[test]
@@ -552,7 +631,7 @@ mod tests {
     }
 
     #[test]
-    fn test_push_field_id_4bit_type_4bit_field() {
+    fn test_read_field_id_4bit_type_4bit_field() {
         let mut s = deserializer(&[0b0010_0100]);
         let value = s.read_field_id().unwrap();
         assert_eq!(
@@ -562,7 +641,7 @@ mod tests {
     }
 
     #[test]
-    fn test_push_field_id_4bit_type_8bit_field() {
+    fn test_read_field_id_4bit_type_8bit_field() {
         let mut s = deserializer(&[0b0010_0000, 0b0001_0100]);
         let value = s.read_field_id().unwrap();
         assert_eq!(
@@ -572,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn test_push_field_id_8bit_type_8bit_field() {
+    fn test_read_field_id_8bit_type_8bit_field() {
         let mut s = deserializer(&[0, 0b0001_0001, 0b0001_0100]);
         let value = s.read_field_id().unwrap();
         assert_eq!(
@@ -582,7 +661,7 @@ mod tests {
     }
 
     #[test]
-    fn test_push_field_id_8bit_type_4bit_field() {
+    fn test_read_field_id_8bit_type_4bit_field() {
         let mut s = deserializer(&[0b0000_0100, 0b0001_0001]);
         let value = s.read_field_id().unwrap();
         assert_eq!(
@@ -592,4 +671,86 @@ mod tests {
     }
 
     // todo allan arrays
+
+    /// Test deserialize fields one by one (in order)
+    #[test]
+    fn test_deserialize_fields() {
+        let mut s = deserializer(&[
+            0b0010_0001,
+            0,
+            0,
+            0,
+            12,
+            0b0010_0010,
+            0,
+            0,
+            0,
+            23,
+            0b0011_0001,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            34,
+        ]);
+
+        assert_eq!(
+            s.deserialize_single_field("NetworkID")
+                .unwrap()
+                .deserialize_uint32()
+                .unwrap(),
+            12
+        );
+        assert_eq!(
+            s.deserialize_single_field("Flags")
+                .unwrap()
+                .deserialize_uint32()
+                .unwrap(),
+            23
+        );
+        assert_eq!(
+            s.deserialize_single_field("IndexNext")
+                .unwrap()
+                .deserialize_uint64()
+                .unwrap(),
+            34
+        );
+    }
+
+    /// Tests the example <https://xrpl.org/serialization.html#examples>
+    #[test]
+    fn test_deserialize_offer_create() {
+        let txn: OfferCreateTransaction = crate::deserialize::deserialize(&hex::decode("120007220008000024001ABED82A2380BF2C2019001ABED764D55920AC9391400000000000000000000000000055534400000000000A20B3C85F482532A9578DBB3950B85CA06594D165400000037E11D60068400000000000000A732103EE83BB432547885C219634A1BC407A9DB0474145D69737D09CCDC63E1DEE7FE3744630440220143759437C04F7B61F012563AFE90D8DAFC46E86035E1D965A9CED282C97D4CE02204CFD241E86F17E011298FC1A39B63386C74306A5DE047E213B0F29EFA4571C2C8114DD76483FACDEE26E60D8A586BB58D09F27045C46").unwrap()).unwrap();
+
+        assert_eq!(
+            txn.common.account,
+            AccountId::from_address("rMBzp8CgpE441cp5PVyA9rpVV7oT8hP3ys").unwrap()
+        );
+        assert_eq!(txn.taker_gets, Amount::drops(15000000000).unwrap());
+        assert_eq!(
+            txn.taker_pays,
+            Amount::issued(
+                IssuedValue::from_mantissa_exponent(70728, -1).unwrap(),
+                CurrencyCode::standard([AsciiChar::U, AsciiChar::S, AsciiChar::D]).unwrap(),
+                AccountId::from_address("rvYAfWj5gh67oV6fW32ZzP3Aw4Eubs59B").unwrap(),
+            )
+            .unwrap()
+        );
+        assert_eq!(txn.common.fee, Some(DropsAmount::from_drops(10).unwrap()));
+        assert_eq!(txn.common.sequence, Some(1752792));
+        assert_eq!(
+            txn.common.signing_pub_key,
+            Some(Blob(
+                hex::decode("03EE83BB432547885C219634A1BC407A9DB0474145D69737D09CCDC63E1DEE7FE3")
+                    .unwrap(),
+            ))
+        );
+        assert_eq!(txn.common.txn_signature, Some(Blob(hex::decode("30440220143759437C04F7B61F012563AFE90D8DAFC46E86035E1D965A9CED282C97D4CE02204CFD241E86F17E011298FC1A39B63386C74306A5DE047E213B0F29EFA4571C2C").unwrap())));
+        assert_eq!(txn.expiration, Some(595640108));
+        assert_eq!(txn.flags, BitFlags::from_bits(524288).unwrap());
+        assert_eq!(txn.offer_sequence, Some(1752791));
+    }
 }

@@ -1,8 +1,7 @@
-use crate::alloc::{format, string::ToString, vec::Vec};
+use alloc::{format, string::ToString, vec::Vec};
 use crate::error::BinaryCodecError;
 use crate::field::{field_info, FieldCode, FieldId, TypeCode};
 use bytes::BufMut;
-use std::io::Write;
 use xrpl_types::{
     serialize::{Serialize, SerializeArray},
     AccountId, Amount, Blob, CurrencyCode, DropsAmount, Hash128, Hash160, Hash256, IssuedValue,
@@ -149,7 +148,7 @@ impl<'a> SerializeArray for ArraySerializer<'a> {
         field_name: &str,
         object: &T,
     ) -> Result<(), Self::Error> {
-        let field_id = field_id(field_name, TypeCode::Object)?;
+        let field_id = get_field_id(field_name, TypeCode::Object)?;
         self.serializer.push_field_id(field_id)?;
         let mut object_serializer = Serializer::new();
         object.serialize(&mut object_serializer)?;
@@ -236,7 +235,7 @@ impl Serializer {
         field_name: &str,
         field_type: TypeCode,
     ) -> Result<SerializeFieldStartIndex, BinaryCodecError> {
-        let field_id = field_id(field_name, field_type)?;
+        let field_id = get_field_id(field_name, field_type)?;
         let start_index = SerializeFieldStartIndex::new(field_id, self.buffer.len());
         self.push_field_id(field_id)?;
         Ok(start_index)
@@ -410,7 +409,7 @@ impl Serializer {
     }
 }
 
-pub fn field_id(field_name: &str, field_type: TypeCode) -> Result<FieldId, BinaryCodecError> {
+pub fn get_field_id(field_name: &str, field_type: TypeCode) -> Result<FieldId, BinaryCodecError> {
     let field_id = *field_info::field_id_by_name(field_name).ok_or_else(|| {
         BinaryCodecError::InvalidField(format!("Field with name {} is not known", field_name))
     })?;
@@ -432,6 +431,7 @@ mod tests {
     use enumflags2::BitFlags;
     use xrpl_types::serialize::{Serialize, Serializer};
     use xrpl_types::OfferCreateTransaction;
+    use crate::serialize;
 
     fn serializer() -> super::Serializer {
         super::Serializer::new()
@@ -992,8 +992,7 @@ mod tests {
     /// Tests the example <https://xrpl.org/serialization.html#examples>
     #[test]
     fn test_serialize_offer_create() {
-        let mut s = serializer();
-        let mut tx = OfferCreateTransaction::new(
+        let mut txn = OfferCreateTransaction::new(
             AccountId::from_address("rMBzp8CgpE441cp5PVyA9rpVV7oT8hP3ys").unwrap(),
             Amount::drops(15000000000).unwrap(),
             Amount::issued(
@@ -1003,18 +1002,18 @@ mod tests {
             )
             .unwrap(),
         );
-        tx.common.fee = Some(DropsAmount::from_drops(10).unwrap());
-        tx.common.sequence = Some(1752792);
-        tx.common.signing_pub_key = Some(Blob(
+        txn.common.fee = Some(DropsAmount::from_drops(10).unwrap());
+        txn.common.sequence = Some(1752792);
+        txn.common.signing_pub_key = Some(Blob(
             hex::decode("03EE83BB432547885C219634A1BC407A9DB0474145D69737D09CCDC63E1DEE7FE3")
                 .unwrap(),
         ));
-        tx.common.txn_signature = Some(Blob(hex::decode("30440220143759437C04F7B61F012563AFE90D8DAFC46E86035E1D965A9CED282C97D4CE02204CFD241E86F17E011298FC1A39B63386C74306A5DE047E213B0F29EFA4571C2C").unwrap()));
-        tx.expiration = Some(595640108);
-        tx.flags = BitFlags::from_bits(524288).unwrap();
-        tx.offer_sequence = Some(1752791);
+        txn.common.txn_signature = Some(Blob(hex::decode("30440220143759437C04F7B61F012563AFE90D8DAFC46E86035E1D965A9CED282C97D4CE02204CFD241E86F17E011298FC1A39B63386C74306A5DE047E213B0F29EFA4571C2C").unwrap()));
+        txn.expiration = Some(595640108);
+        txn.flags = BitFlags::from_bits(524288).unwrap();
+        txn.offer_sequence = Some(1752791);
 
-        tx.serialize(&mut s).unwrap();
-        assert_eq!(hex::encode_upper(s.into_bytes().unwrap()), "120007220008000024001ABED82A2380BF2C2019001ABED764D55920AC9391400000000000000000000000000055534400000000000A20B3C85F482532A9578DBB3950B85CA06594D165400000037E11D60068400000000000000A732103EE83BB432547885C219634A1BC407A9DB0474145D69737D09CCDC63E1DEE7FE3744630440220143759437C04F7B61F012563AFE90D8DAFC46E86035E1D965A9CED282C97D4CE02204CFD241E86F17E011298FC1A39B63386C74306A5DE047E213B0F29EFA4571C2C8114DD76483FACDEE26E60D8A586BB58D09F27045C46");
+        let bytes = serialize::serialize(&txn).unwrap();
+        assert_eq!(hex::encode_upper(&bytes), "120007220008000024001ABED82A2380BF2C2019001ABED764D55920AC9391400000000000000000000000000055534400000000000A20B3C85F482532A9578DBB3950B85CA06594D165400000037E11D60068400000000000000A732103EE83BB432547885C219634A1BC407A9DB0474145D69737D09CCDC63E1DEE7FE3744630440220143759437C04F7B61F012563AFE90D8DAFC46E86035E1D965A9CED282C97D4CE02204CFD241E86F17E011298FC1A39B63386C74306A5DE047E213B0F29EFA4571C2C8114DD76483FACDEE26E60D8A586BB58D09F27045C46");
     }
 }

@@ -1,6 +1,7 @@
 mod common;
 mod variants;
 
+use alloc::{format, string::ToString, vec::Vec};
 use crate::deserialize::FieldAccessor;
 use crate::deserialize::{DeserError, Deserialize, Deserializer};
 use crate::serialize::{Serialize};

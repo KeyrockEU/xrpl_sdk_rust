@@ -12,5 +12,6 @@ pub mod serialize;
 pub mod serializer;
 pub mod sign;
 mod field;
+pub mod deserialize;
 
 pub use error::*;
