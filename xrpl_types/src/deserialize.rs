@@ -1,6 +1,6 @@
 use crate::{AccountId, Amount, Blob, Hash128, Hash160, Hash256, UInt16, UInt32, UInt64, UInt8};
 use core::fmt;
-use core::fmt::Display;
+use core::fmt::{Display};
 
 pub trait DeserError: fmt::Debug + fmt::Display + Sized {
     fn missing_field(field: &str) -> Self;

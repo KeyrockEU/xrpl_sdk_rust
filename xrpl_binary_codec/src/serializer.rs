@@ -1,11 +1,11 @@
-use alloc::{format, string::ToString, vec::Vec};
 use crate::error::BinaryCodecError;
 use crate::field::{field_info, FieldCode, FieldId, TypeCode};
+use alloc::{format, string::ToString, vec::Vec};
 use bytes::BufMut;
 use xrpl_types::{
     serialize::{Serialize, SerializeArray},
     AccountId, Amount, Blob, CurrencyCode, DropsAmount, Hash128, Hash160, Hash256, IssuedValue,
-    UInt16, UInt32, UInt8, UInt64,
+    UInt16, UInt32, UInt64, UInt8,
 };
 
 #[derive(Debug, Default)]
@@ -425,13 +425,13 @@ pub fn get_field_id(field_name: &str, field_type: TypeCode) -> Result<FieldId, B
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::serialize;
     use alloc::vec;
     use ascii::AsciiChar;
     use assert_matches::assert_matches;
     use enumflags2::BitFlags;
     use xrpl_types::serialize::{Serialize, Serializer};
     use xrpl_types::OfferCreateTransaction;
-    use crate::serialize;
 
     fn serializer() -> super::Serializer {
         super::Serializer::new()

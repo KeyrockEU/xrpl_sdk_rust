@@ -31,7 +31,7 @@ static FIELD_ID_TO_FIELD_NAME: std::sync::OnceLock<HashMap<FieldId, String>> = s
 
 #[cfg(feature = "std")]
 pub fn field_id_to_field_name() -> &'static HashMap<FieldId, String> {
-    FIELD_ID_TO_FIELD_NAME.get_or_init(|| create_field_id_to_field_name_map())
+    FIELD_ID_TO_FIELD_NAME.get_or_init(create_field_id_to_field_name_map)
 }
 
 #[cfg(not(feature = "std"))]

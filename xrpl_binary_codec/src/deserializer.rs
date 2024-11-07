@@ -13,7 +13,7 @@ use xrpl_types::{
 
 use crate::alloc::string::ToString;
 use crate::field::{field_info, FieldCode, FieldId, TypeCode};
-use xrpl_types::deserialize::{DeserError, Deserialize, Visitor};
+use xrpl_types::deserialize::{DeserError, Visitor};
 
 #[derive(Debug, Clone, Default)]
 pub struct Deserializer<B> {
@@ -53,7 +53,7 @@ impl<B: Buf> deserialize::Deserializer for Deserializer<B> {
     fn deserialize_single_field(
         &mut self,
         field_name: &str,
-    ) -> Result<FieldAccessor<'_, B>, Self::Error> {
+    ) -> Result<impl deserialize::FieldAccessor<Error = BinaryCodecError>, Self::Error> {
         let field_id = self.read_field_id()?;
         let actual_field_name = get_field_name(field_id)?;
         if field_name != actual_field_name {
@@ -330,7 +330,7 @@ enum DropsOrIssuedValue {
 
 fn ascii(byte: u8) -> Result<AsciiChar, BinaryCodecError> {
     AsciiChar::from_ascii(byte)
-        .map_err(|err| BinaryCodecError::OutOfRange(format!("Not valid ASCII char: {}", byte)))
+        .map_err(|_err| BinaryCodecError::OutOfRange(format!("Not valid ASCII char: {}", byte)))
 }
 
 pub fn get_field_name(field_id: FieldId) -> Result<&'static str, BinaryCodecError> {
@@ -746,7 +746,7 @@ mod tests {
 
         let result = s.deserialize_single_field("Flags");
 
-        assert_matches!(result, Err(BinaryCodecError::InvalidField(message)) => {
+        assert_matches!(result.map(|_|()), Err(BinaryCodecError::InvalidField(message)) => {
             assert!(message.contains("Expected field"), "message: {}", message);
         });
     }
