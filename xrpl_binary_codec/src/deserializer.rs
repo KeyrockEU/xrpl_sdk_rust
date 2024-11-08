@@ -353,7 +353,9 @@ mod tests {
     use assert_matches::assert_matches;
     use enumflags2::BitFlags;
     use xrpl_types::deserialize::{Deserializer, FieldAccessor};
-    use xrpl_types::{AccountSetTransaction, DropsAmount, OfferCreateTransaction, Transaction};
+    use xrpl_types::{
+        AccountSetTransaction, DropsAmount, Memo, OfferCreateTransaction, Transaction,
+    };
 
     fn deserializer(bytes: &[u8]) -> super::Deserializer<&[u8]> {
         super::Deserializer::new(bytes)
@@ -815,6 +817,78 @@ mod tests {
         });
     }
 
+    /// Test deserialize with visitor
+    #[test]
+    fn test_deserialize_fields_visitor() {
+        let s = deserializer(&[0b0010_0001, 0, 0, 0, 12, 0b0010_0010, 0, 0, 0, 23]);
+
+        #[derive(Default)]
+        struct Visitor {
+            network_id: Option<UInt32>,
+            flags: Option<UInt32>,
+        }
+
+        impl deserialize::Visitor for Visitor {
+            fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
+                &mut self,
+                field_name: &str,
+                mut field_accessor: F,
+            ) -> Result<(), E> {
+                match field_name {
+                    "NetworkID" => {
+                        self.network_id = Some(field_accessor.deserialize_uint32()?);
+                    }
+                    "Flags" => {
+                        self.flags = Some(field_accessor.deserialize_uint32()?);
+                    }
+                    _ => (),
+                }
+                Ok(())
+            }
+        }
+
+        let mut visitor = Visitor::default();
+
+        s.deserialize(&mut visitor).unwrap();
+
+        assert_eq!(visitor.network_id, Some(12));
+        assert_eq!(visitor.flags, Some(23));
+    }
+
+    /// Test deserialize with visitor, where a field is not used.
+    #[test]
+    fn test_deserialize_fields_unused_field() {
+        // first field is NetworkID which we ignore
+        let s = deserializer(&[0b0010_0001, 0, 0, 0, 12, 0b0010_0010, 0, 0, 0, 23]);
+
+        #[derive(Default)]
+        struct Visitor {
+            flags: Option<UInt32>,
+        }
+
+        impl deserialize::Visitor for Visitor {
+            fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
+                &mut self,
+                field_name: &str,
+                mut field_accessor: F,
+            ) -> Result<(), E> {
+                match field_name {
+                    "Flags" => {
+                        self.flags = Some(field_accessor.deserialize_uint32()?);
+                    }
+                    _ => (),
+                }
+                Ok(())
+            }
+        }
+
+        let mut visitor = Visitor::default();
+
+        s.deserialize(&mut visitor).unwrap();
+
+        assert_eq!(visitor.flags, Some(23));
+    }
+
     /// Tests the example <https://xrpl.org/serialization.html#examples>
     #[test]
     fn test_deserialize_offer_create() {
@@ -849,6 +923,29 @@ mod tests {
         assert_eq!(txn.offer_sequence, Some(1752791));
     }
 
+    /// Deserialize transaction with `Memos` array field
+    #[test]
+    fn test_deserialize_transaction_with_memos() {
+        let mut txn_orig = AccountSetTransaction::new(
+            AccountId::from_address("rMBzp8CgpE441cp5PVyA9rpVV7oT8hP3ys").unwrap(),
+        );
+        txn_orig.common.memos.push(Memo {
+            memo_type: Blob(vec![0, 1]),
+            memo_data: Blob(vec![2, 3]),
+            memo_format: None,
+        });
+        txn_orig.common.memos.push(Memo {
+            memo_type: Blob(vec![4, 5]),
+            memo_data: Blob(vec![6, 7]),
+            memo_format: None,
+        });
+
+        let txn: AccountSetTransaction =
+            crate::deserialize::deserialize(&serialize::serialize(&txn_orig).unwrap()).unwrap();
+        assert_eq!(txn.common.memos.len(), 2);
+    }
+
+    /// Deserialize to `Transaction` enum type
     #[test]
     fn test_deserialize_as_transaction() {
         let txn_orig = AccountSetTransaction::new(
