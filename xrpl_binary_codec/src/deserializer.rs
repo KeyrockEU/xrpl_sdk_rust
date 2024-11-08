@@ -67,6 +67,18 @@ impl<B: Buf> deserialize::Deserializer for Deserializer<B> {
     }
 }
 
+impl<B: Buf> Deserializer<B> {
+    fn deserialize_field(
+        &mut self,
+    ) -> Result<impl deserialize::FieldAccessor<Error = BinaryCodecError>, Self::Error> {
+        let field_id = self.read_field_id()?;
+        let field_name = get_field_name(field_id)?;
+
+
+        Ok(FieldAccessor { deserializer: self })
+    }
+}
+
 #[derive(Debug)]
 struct FieldAccessor<'a, B> {
     deserializer: &'a mut Deserializer<B>,
@@ -343,12 +355,12 @@ pub fn get_field_name(field_id: FieldId) -> Result<&'static str, BinaryCodecErro
 mod tests {
     use super::*;
     use crate::field::{FieldCode, TypeCode};
+    use crate::serialize;
     use ascii::AsciiChar;
     use assert_matches::assert_matches;
     use enumflags2::BitFlags;
     use xrpl_types::deserialize::{Deserializer, FieldAccessor};
     use xrpl_types::{AccountSetTransaction, DropsAmount, OfferCreateTransaction, Transaction};
-    use crate::serialize;
 
     fn deserializer(bytes: &[u8]) -> super::Deserializer<&[u8]> {
         super::Deserializer::new(bytes)
@@ -735,6 +747,44 @@ mod tests {
         );
     }
 
+    /// Don't accept fields in wrong order (could make interpretation of transaction ambiguous
+    /// depending on how other systems/implementations deserialize). For security reasons, follow the specification
+    /// strictly.
+    #[test]
+    fn test_deserialize_fields_wrong_order() {
+        let mut s = deserializer(&[0b0010_0010, 0, 0, 0, 23, 0b0010_0001, 0, 0, 0, 12]);
+
+        s.deserialize_single_field("Flags")
+            .unwrap()
+            .deserialize_uint32()
+            .unwrap();
+
+        let result = s.deserialize_single_field("NetworkID");
+
+        assert_matches!(result.map(|_|()), Err(BinaryCodecError::FieldOrder(message)) => {
+            assert!(message.contains("Fields out of order"), "message: {}", message);
+        });
+    }
+
+    /// Don't accept duplicate fields (could make interpretation of transaction ambiguous
+    /// depending on how other systems/implementations deserialize). For security reasons, follow the specification
+    /// strictly.
+    #[test]
+    fn test_deserialize_field_appears_twice() {
+        let mut s = deserializer(&[0b0010_0010, 0, 0, 0, 23, 0b0010_0010, 0, 0, 0, 23]);
+
+        s.deserialize_single_field("Flags")
+            .unwrap()
+            .deserialize_uint32()
+            .unwrap();
+
+        let result = s.deserialize_single_field("Flags");
+
+        assert_matches!(result.map(|_|()), Err(BinaryCodecError::FieldOrder(message)) => {
+            assert!(message.contains("Fields appears twice"), "message: {}", message);
+        });
+    }
+
     #[test]
     fn test_deserialize_field_wrong_name() {
         let mut s = deserializer(&[
@@ -749,6 +799,26 @@ mod tests {
 
         assert_matches!(result.map(|_|()), Err(BinaryCodecError::InvalidField(message)) => {
             assert!(message.contains("Expected field"), "message: {}", message);
+        });
+    }
+
+    #[test]
+    fn test_deserialize_field_wrong_type() {
+        let mut s = deserializer(&[
+            0b0010_0001, // type uint32
+            0,
+            0,
+            0,
+            12,
+        ]);
+
+        let result = s
+            .deserialize_single_field("NetworkID")
+            .unwrap()
+            .deserialize_uint64();
+
+        assert_matches!(result.map(|_|()), Err(BinaryCodecError::InvalidField(message)) => {
+            assert!(message.contains("Expected type"), "message: {}", message);
         });
     }
 
@@ -788,8 +858,11 @@ mod tests {
 
     #[test]
     fn test_deserialize_as_transaction() {
-        let txn_orig = AccountSetTransaction::new(AccountId::from_address("rMBzp8CgpE441cp5PVyA9rpVV7oT8hP3ys").unwrap());
-        let txn: Transaction = crate::deserialize::deserialize(&serialize::serialize(&txn_orig).unwrap()).unwrap();
+        let txn_orig = AccountSetTransaction::new(
+            AccountId::from_address("rMBzp8CgpE441cp5PVyA9rpVV7oT8hP3ys").unwrap(),
+        );
+        let txn: Transaction =
+            crate::deserialize::deserialize(&serialize::serialize(&txn_orig).unwrap()).unwrap();
         assert_matches!(txn, Transaction::AccountSet(txn) => {
             assert_eq!(txn.common.account, AccountId::from_address("rMBzp8CgpE441cp5PVyA9rpVV7oT8hP3ys").unwrap());
         });
