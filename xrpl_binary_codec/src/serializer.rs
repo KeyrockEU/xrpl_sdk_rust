@@ -2,11 +2,7 @@ use crate::error::BinaryCodecError;
 use crate::field::{field_info, FieldCode, FieldId, TypeCode};
 use alloc::{format, string::ToString, vec::Vec};
 use bytes::BufMut;
-use xrpl_types::{
-    serialize::{Serialize, SerializeArray},
-    AccountId, Amount, Blob, CurrencyCode, DropsAmount, Hash128, Hash160, Hash256, IssuedValue,
-    UInt16, UInt32, UInt64, UInt8,
-};
+use xrpl_types::{serialize, serialize::{Serialize}, AccountId, Amount, Blob, CurrencyCode, DropsAmount, Hash128, Hash160, Hash256, IssuedValue, UInt16, UInt32, UInt64, UInt8};
 
 #[derive(Debug, Default)]
 pub struct Serializer {
@@ -18,7 +14,7 @@ pub struct Serializer {
 
 impl xrpl_types::serialize::Serializer for Serializer {
     type Error = BinaryCodecError;
-    type SerializeArray<'a> = ArraySerializer<'a>;
+    type ArraySerializer<'a> = ArraySerializer<'a>;
 
     fn serialize_account_id(
         &mut self,
@@ -125,7 +121,7 @@ impl xrpl_types::serialize::Serializer for Serializer {
     fn serialize_array(
         &mut self,
         field_name: &str,
-    ) -> Result<Self::SerializeArray<'_>, Self::Error> {
+    ) -> Result<Self::ArraySerializer<'_>, Self::Error> {
         let start_index = self.start_field(field_name, TypeCode::Array)?;
         Ok(ArraySerializer {
             serializer: self,
@@ -140,7 +136,7 @@ pub struct ArraySerializer<'a> {
     start_index: SerializeFieldStartIndex,
 }
 
-impl<'a> SerializeArray for ArraySerializer<'a> {
+impl<'a> serialize::ArraySerializer for ArraySerializer<'a> {
     type Error = BinaryCodecError;
 
     fn serialize_object<T: Serialize>(
@@ -430,7 +426,7 @@ mod tests {
     use ascii::AsciiChar;
     use assert_matches::assert_matches;
     use enumflags2::BitFlags;
-    use xrpl_types::serialize::{Serialize, Serializer};
+    use xrpl_types::serialize::{ArraySerializer, Serialize, Serializer};
     use xrpl_types::OfferCreateTransaction;
 
     fn serializer() -> super::Serializer {

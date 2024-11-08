@@ -1,9 +1,10 @@
 use crate::{AccountId, Amount, Blob, Hash128, Hash160, Hash256, UInt16, UInt32, UInt64, UInt8};
 use core::fmt;
-use core::fmt::{Display};
+use core::fmt::Display;
 
 pub trait DeserError: fmt::Debug + fmt::Display + Sized {
     fn missing_field(field: &str) -> Self;
+    fn unexpected_field(field: &str) -> Self;
     fn invalid_value(msg: impl Display) -> Self;
 
     fn unwrap_field_value<T>(field: &str, value: Option<T>) -> Result<T, Self> {
@@ -30,9 +31,10 @@ pub trait Deserializer {
     fn deserialize<V: Visitor>(self, visitor: &mut V) -> Result<(), Self::Error>;
 
     /// Deserialize single field in order
-    fn deserialize_single_field(&mut self, field_name: &str) -> Result<impl FieldAccessor<Error = Self::Error>, Self::Error>;
-
-    // fn deserialize_array<T: Deserialize>(&mut self, array_field_name: &str, object_field_name: &str) -> Result<Vec<T>, Self::Error>;
+    fn deserialize_single_field(
+        &mut self,
+        field_name: &str,
+    ) -> Result<impl FieldAccessor<Error = Self::Error>, Self::Error>;
 }
 
 pub trait Visitor {
@@ -41,28 +43,44 @@ pub trait Visitor {
         field_name: &str,
         field_accessor: F,
     ) -> Result<(), E>;
+
+    fn visit_array<E: DeserError, AD: ArrayDeserializer<Error = E>>(
+        &mut self,
+        field_name: &str,
+        array_deserializer: AD,
+    ) -> Result<(), E>;
 }
 
 pub trait FieldAccessor {
     type Error: DeserError;
 
-    fn deserialize_account_id(&mut self) -> Result<AccountId, Self::Error>;
+    fn deserialize_account_id(self) -> Result<AccountId, Self::Error>;
 
-    fn deserialize_amount(&mut self) -> Result<Amount, Self::Error>;
+    fn deserialize_amount(self) -> Result<Amount, Self::Error>;
 
-    fn deserialize_blob(&mut self) -> Result<Blob, Self::Error>;
+    fn deserialize_blob(self) -> Result<Blob, Self::Error>;
 
-    fn deserialize_hash128(&mut self) -> Result<Hash128, Self::Error>;
+    fn deserialize_hash128(self) -> Result<Hash128, Self::Error>;
 
-    fn deserialize_hash160(&mut self) -> Result<Hash160, Self::Error>;
+    fn deserialize_hash160(self) -> Result<Hash160, Self::Error>;
 
-    fn deserialize_hash256(&mut self) -> Result<Hash256, Self::Error>;
+    fn deserialize_hash256(self) -> Result<Hash256, Self::Error>;
 
-    fn deserialize_uint8(&mut self) -> Result<UInt8, Self::Error>;
+    fn deserialize_uint8(self) -> Result<UInt8, Self::Error>;
 
-    fn deserialize_uint16(&mut self) -> Result<UInt16, Self::Error>;
+    fn deserialize_uint16(self) -> Result<UInt16, Self::Error>;
 
-    fn deserialize_uint32(&mut self) -> Result<UInt32, Self::Error>;
+    fn deserialize_uint32(self) -> Result<UInt32, Self::Error>;
 
-    fn deserialize_uint64(&mut self) -> Result<UInt64, Self::Error>;
+    fn deserialize_uint64(self) -> Result<UInt64, Self::Error>;
+}
+
+#[must_use]
+pub trait ArrayDeserializer {
+    type Error: DeserError;
+
+    fn deserialize_object<T: Deserialize>(
+        &mut self,
+        field_name: &str,
+    ) -> Result<Option<T>, Self::Error>;
 }

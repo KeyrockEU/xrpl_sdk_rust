@@ -1,4 +1,4 @@
-use crate::deserialize::{DeserError, Deserialize, Deserializer, FieldAccessor};
+use crate::deserialize::{ArrayDeserializer, DeserError, Deserialize, Deserializer, FieldAccessor};
 use crate::serialize::{Serialize, Serializer};
 use crate::{
     deserialize, AccountId, TransactionCommon, TransactionCommonVisitor, TransactionTrait,
@@ -73,7 +73,7 @@ impl Deserialize for AccountDeleteTransaction {
             fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
                 &mut self,
                 field_name: &str,
-                mut field_accessor: F,
+                field_accessor: F,
             ) -> Result<(), E> {
                 match field_name {
                     "TransactionType" => {
@@ -98,6 +98,14 @@ impl Deserialize for AccountDeleteTransaction {
                     }
                 }
                 Ok(())
+            }
+
+            fn visit_array<E: DeserError, AD: ArrayDeserializer<Error = E>>(
+                &mut self,
+                field_name: &str,
+                array_deserializer: AD,
+            ) -> Result<(), E> {
+                self.common.visit_array(field_name, array_deserializer)
             }
         }
 

@@ -5,7 +5,6 @@ use crate::{
 use ascii::AsciiChar;
 use bytes::Buf;
 use core::fmt::Display;
-
 use xrpl_types::{
     deserialize, AccountId, Amount, Blob, CurrencyCode, DropsAmount, Hash128, Hash160, Hash256,
     IssuedAmount, IssuedValue, UInt16, UInt32, UInt64, UInt8,
@@ -13,16 +12,22 @@ use xrpl_types::{
 
 use crate::alloc::string::ToString;
 use crate::field::{field_info, FieldCode, FieldId, TypeCode};
-use xrpl_types::deserialize::{DeserError, Visitor};
+use xrpl_types::deserialize::{DeserError, Deserialize, Visitor};
 
 #[derive(Debug, Clone, Default)]
 pub struct Deserializer<B> {
     bytes: B,
+    object_deserializer: bool,
+    previous_field_id: Option<FieldId>,
 }
 
 impl DeserError for BinaryCodecError {
     fn missing_field(field: &str) -> Self {
-        BinaryCodecError::InvalidField(field.to_string())
+        BinaryCodecError::MissingField(field.to_string())
+    }
+
+    fn unexpected_field(field: &str) -> Self {
+        BinaryCodecError::InvalidField(format!("Unexpected field: {}", field))
     }
 
     fn invalid_value(msg: impl Display) -> Self {
@@ -39,8 +44,31 @@ impl<B: Buf> deserialize::Deserializer for Deserializer<B> {
                 return Ok(());
             }
 
-            let (field_accessor, field_id, field_name) = self.deserialize_field()?;
-            visitor.visit_field(field_name, field_accessor)?;
+            let field_id = self.read_field_id()?;
+            let field_name = get_field_name(field_id)?;
+
+            if field_id == FieldId::from_type_field(TypeCode::Object, FieldCode(1))
+                && self.object_deserializer
+            {
+                return Ok(());
+            }
+
+            self.set_and_check_field_order(field_id)?;
+
+            if field_id.type_code == TypeCode::Array {
+                let array_deserializer = ArrayDeserializer {
+                    deserializer: &mut self,
+                };
+                visitor.visit_array(field_name, array_deserializer)?;
+            } else {
+                visitor.visit_field(
+                    field_name,
+                    FieldAccessor {
+                        deserializer: &mut self,
+                        type_code: field_id.type_code,
+                    },
+                )?;
+            }
         }
     }
 
@@ -48,7 +76,9 @@ impl<B: Buf> deserialize::Deserializer for Deserializer<B> {
         &mut self,
         expected_field_name: &str,
     ) -> Result<impl deserialize::FieldAccessor<Error = BinaryCodecError>, Self::Error> {
-        let (field_accessor, field_id, field_name) = self.deserialize_field()?;
+        let field_id = self.read_field_id()?;
+        let field_name = get_field_name(field_id)?;
+        self.set_and_check_field_order(field_id)?;
 
         if field_name != expected_field_name {
             return Err(BinaryCodecError::InvalidField(format!(
@@ -57,73 +87,159 @@ impl<B: Buf> deserialize::Deserializer for Deserializer<B> {
             )));
         }
 
-        Ok(field_accessor)
+        Ok(FieldAccessor {
+            deserializer: self,
+            type_code: field_id.type_code,
+        })
     }
 }
 
-impl<B: Buf> Deserializer<B> {
-    fn deserialize_field(
+#[derive(Debug)]
+pub struct ArrayDeserializer<'a, B> {
+    deserializer: &'a mut Deserializer<B>,
+}
+
+impl<'a, B: Buf> deserialize::ArrayDeserializer for ArrayDeserializer<'a, B> {
+    type Error = BinaryCodecError;
+
+    fn deserialize_object<T: Deserialize>(
         &mut self,
-    ) -> Result<(FieldAccessor<'_, B>, FieldId, &'static str), BinaryCodecError> {
-        let field_id = self.read_field_id()?;
+        expected_field_name: &str,
+    ) -> Result<Option<T>, Self::Error> {
+        let field_id = self.deserializer.read_field_id()?;
+
+        if field_id == FieldId::from_type_field(TypeCode::Array, FieldCode(1)) {
+            return Ok(None);
+        }
+
+        if field_id.type_code != TypeCode::Object {
+            return Err(BinaryCodecError::InvalidField(format!(
+                "Expected object type, found {}",
+                field_id.type_code
+            )));
+        }
+
         let field_name = get_field_name(field_id)?;
 
-        Ok((FieldAccessor { deserializer: self }, field_id, field_name))
+        if field_name == expected_field_name {
+            let object_deserializer = Deserializer {
+                bytes: &mut self.deserializer.bytes,
+                object_deserializer: true,
+                previous_field_id: None,
+            };
+
+            let object = T::deserialize(object_deserializer)?;
+
+            Ok(Some(object))
+        } else {
+            Err(BinaryCodecError::InvalidField(format!(
+                "Expected field {}, found {}",
+                expected_field_name, field_name
+            )))
+        }
     }
 }
 
 #[derive(Debug)]
 struct FieldAccessor<'a, B> {
     deserializer: &'a mut Deserializer<B>,
+    type_code: TypeCode,
+}
+
+impl<'a, B> FieldAccessor<'a, B> {
+    fn check_type(&self, expected_type_code: TypeCode) -> Result<(), BinaryCodecError> {
+        if self.type_code != expected_type_code {
+            Err(BinaryCodecError::InvalidField(format!(
+                "Expected type {}, found {}",
+                expected_type_code, self.type_code
+            )))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl<'a, B: Buf> deserialize::FieldAccessor for FieldAccessor<'a, B> {
     type Error = BinaryCodecError;
 
-    fn deserialize_account_id(&mut self) -> Result<AccountId, Self::Error> {
+    fn deserialize_account_id(self) -> Result<AccountId, Self::Error> {
+        self.check_type(TypeCode::AccountId)?;
         self.deserializer.read_account_id()
     }
 
-    fn deserialize_amount(&mut self) -> Result<Amount, Self::Error> {
+    fn deserialize_amount(self) -> Result<Amount, Self::Error> {
+        self.check_type(TypeCode::Amount)?;
         self.deserializer.read_amount()
     }
 
-    fn deserialize_blob(&mut self) -> Result<Blob, Self::Error> {
+    fn deserialize_blob(self) -> Result<Blob, Self::Error> {
+        self.check_type(TypeCode::Blob)?;
         self.deserializer.read_blob()
     }
 
-    fn deserialize_hash128(&mut self) -> Result<Hash128, Self::Error> {
+    fn deserialize_hash128(self) -> Result<Hash128, Self::Error> {
+        self.check_type(TypeCode::Hash128)?;
         self.deserializer.read_h128()
     }
 
-    fn deserialize_hash160(&mut self) -> Result<Hash160, Self::Error> {
+    fn deserialize_hash160(self) -> Result<Hash160, Self::Error> {
+        self.check_type(TypeCode::Hash160)?;
         self.deserializer.read_h160()
     }
 
-    fn deserialize_hash256(&mut self) -> Result<Hash256, Self::Error> {
+    fn deserialize_hash256(self) -> Result<Hash256, Self::Error> {
+        self.check_type(TypeCode::Hash256)?;
         self.deserializer.read_h256()
     }
 
-    fn deserialize_uint8(&mut self) -> Result<UInt8, Self::Error> {
+    fn deserialize_uint8(self) -> Result<UInt8, Self::Error> {
+        self.check_type(TypeCode::UInt8)?;
         self.deserializer.read_uint8()
     }
 
-    fn deserialize_uint16(&mut self) -> Result<UInt16, Self::Error> {
+    fn deserialize_uint16(self) -> Result<UInt16, Self::Error> {
+        self.check_type(TypeCode::UInt16)?;
         self.deserializer.read_uint16()
     }
 
-    fn deserialize_uint32(&mut self) -> Result<UInt32, Self::Error> {
+    fn deserialize_uint32(self) -> Result<UInt32, Self::Error> {
+        self.check_type(TypeCode::UInt32)?;
         self.deserializer.read_uint32()
     }
 
-    fn deserialize_uint64(&mut self) -> Result<UInt64, Self::Error> {
+    fn deserialize_uint64(self) -> Result<UInt64, Self::Error> {
+        self.check_type(TypeCode::UInt64)?;
         self.deserializer.read_uint64()
     }
 }
 
 impl<B: Buf> Deserializer<B> {
     pub fn new(bytes: B) -> Self {
-        Self { bytes }
+        Self {
+            bytes,
+            object_deserializer: false,
+            previous_field_id: None,
+        }
+    }
+
+    fn set_and_check_field_order(&mut self, new_field_id: FieldId) -> Result<(), BinaryCodecError> {
+        if let Some(previous_field_id) = self.previous_field_id {
+            if previous_field_id == new_field_id {
+                return Err(BinaryCodecError::FieldOrder(format!(
+                    "Field appears twice: {:?}",
+                    new_field_id
+                )));
+            }
+            if previous_field_id > new_field_id {
+                return Err(BinaryCodecError::FieldOrder(format!(
+                    "Field out of order: {:?}",
+                    new_field_id
+                )));
+            }
+        }
+        self.previous_field_id = Some(new_field_id);
+
+        Ok(())
     }
 
     fn read_u8(&mut self) -> Result<u8, BinaryCodecError> {
@@ -352,13 +468,107 @@ mod tests {
     use ascii::AsciiChar;
     use assert_matches::assert_matches;
     use enumflags2::BitFlags;
-    use xrpl_types::deserialize::{Deserializer, FieldAccessor};
+    use xrpl_types::deserialize::{Deserialize, Deserializer, FieldAccessor};
     use xrpl_types::{
         AccountSetTransaction, DropsAmount, Memo, OfferCreateTransaction, Transaction,
     };
 
     fn deserializer(bytes: &[u8]) -> super::Deserializer<&[u8]> {
         super::Deserializer::new(bytes)
+    }
+
+    struct TestObject {
+        field1: UInt32,
+        field2: UInt32,
+    }
+
+    impl Deserialize for TestObject {
+        fn deserialize<S: Deserializer>(deserializer: S) -> Result<Self, S::Error>
+        where
+            Self: Sized,
+        {
+            #[derive(Default)]
+            struct Visitor {
+                field1: Option<UInt32>,
+                field2: Option<UInt32>,
+            }
+
+            impl deserialize::Visitor for Visitor {
+                fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
+                    &mut self,
+                    field_name: &str,
+                    field_accessor: F,
+                ) -> Result<(), E> {
+                    match field_name {
+                        "NetworkID" => {
+                            self.field1 = Some(field_accessor.deserialize_uint32()?);
+                        }
+                        "Flags" => {
+                            self.field2 = Some(field_accessor.deserialize_uint32()?);
+                        }
+                        _ => (),
+                    }
+                    Ok(())
+                }
+
+                fn visit_array<E: DeserError, AD: deserialize::ArrayDeserializer<Error = E>>(
+                    &mut self,
+                    _field_name: &str,
+                    _array_deserializer: AD,
+                ) -> Result<(), E> {
+                    Ok(())
+                }
+            }
+
+            let mut visitor = Visitor::default();
+
+            deserializer.deserialize(&mut visitor)?;
+
+            Ok(TestObject {
+                field1: S::Error::unwrap_field_value("NetworkID", visitor.field1)?,
+                field2: S::Error::unwrap_field_value("Flags", visitor.field2)?,
+            })
+        }
+    }
+
+    #[derive(Default)]
+    pub struct ObjectWithArrayVisitor {
+        objects: Vec<TestObject>,
+        tick_size: Option<UInt8>,
+    }
+
+    impl deserialize::Visitor for ObjectWithArrayVisitor {
+        fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
+            &mut self,
+            field_name: &str,
+            field_accessor: F,
+        ) -> Result<(), E> {
+            #[allow(clippy::single_match)]
+            match field_name {
+                "TickSize" => {
+                    self.tick_size = Some(field_accessor.deserialize_uint8()?);
+                }
+                _ => (),
+            }
+            Ok(())
+        }
+
+        fn visit_array<E: DeserError, AD: deserialize::ArrayDeserializer<Error = E>>(
+            &mut self,
+            field_name: &str,
+            mut array_deserializer: AD,
+        ) -> Result<(), E> {
+            #[allow(clippy::single_match)]
+            match field_name {
+                "Memos" => {
+                    while let Some(memo) = array_deserializer.deserialize_object("Memo")? {
+                        self.objects.push(memo);
+                    }
+                }
+                _ => {}
+            }
+            Ok(())
+        }
     }
 
     #[test]
@@ -692,7 +902,85 @@ mod tests {
         );
     }
 
-    // todo allan arrays
+    /// Test reading array of objects
+    #[test]
+    fn test_read_empty_array() {
+        let s = deserializer(&[0b1111_1001, 0b1111_0001]);
+
+        let mut visitor = ObjectWithArrayVisitor::default();
+        s.deserialize(&mut visitor).unwrap();
+        assert_eq!(visitor.objects.len(), 0);
+    }
+
+    /// Test read array of objects
+    #[test]
+    fn test_read_array() {
+        let s = deserializer(&[
+            0b1111_1001,
+            0b1110_1010,
+            0b0010_0001,
+            0,
+            0,
+            0,
+            12,
+            0b0010_0010,
+            0,
+            0,
+            0,
+            23,
+            0b1110_0001,
+            0b1110_1010,
+            0b0010_0001,
+            0,
+            0,
+            0,
+            34,
+            0b0010_0010,
+            0,
+            0,
+            0,
+            45,
+            0b1110_0001,
+            0b1111_0001,
+        ]);
+
+        let mut visitor = ObjectWithArrayVisitor::default();
+        s.deserialize(&mut visitor).unwrap();
+        assert_eq!(visitor.objects.len(), 2);
+        assert_eq!(visitor.objects[0].field1, 12);
+        assert_eq!(visitor.objects[0].field2, 23);
+        assert_eq!(visitor.objects[1].field1, 34);
+        assert_eq!(visitor.objects[1].field2, 45);
+    }
+
+    #[test]
+    fn test_read_array_with_field_after() {
+        let s = deserializer(&[
+            0b1111_1001,
+            0b1110_1010,
+            0b0010_0001,
+            0,
+            0,
+            0,
+            12,
+            0b0010_0010,
+            0,
+            0,
+            0,
+            23,
+            0b1110_0001,
+            0b1111_0001,
+            0b0000_0000,
+            0b0001_0000,
+            0b0001_0000,
+            12,
+        ]);
+
+        let mut visitor = ObjectWithArrayVisitor::default();
+        s.deserialize(&mut visitor).unwrap();
+        assert_eq!(visitor.objects.len(), 1);
+        assert_eq!(visitor.tick_size, Some(12));
+    }
 
     /// Test deserialize fields one by one (in order)
     #[test]
@@ -757,7 +1045,7 @@ mod tests {
         let result = s.deserialize_single_field("NetworkID");
 
         assert_matches!(result.map(|_|()), Err(BinaryCodecError::FieldOrder(message)) => {
-            assert!(message.contains("Fields out of order"), "message: {}", message);
+            assert!(message.contains("Field out of order"), "message: {}", message);
         });
     }
 
@@ -776,7 +1064,7 @@ mod tests {
         let result = s.deserialize_single_field("Flags");
 
         assert_matches!(result.map(|_|()), Err(BinaryCodecError::FieldOrder(message)) => {
-            assert!(message.contains("Fields appears twice"), "message: {}", message);
+            assert!(message.contains("Field appears twice"), "message: {}", message);
         });
     }
 
@@ -832,7 +1120,7 @@ mod tests {
             fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
                 &mut self,
                 field_name: &str,
-                mut field_accessor: F,
+                field_accessor: F,
             ) -> Result<(), E> {
                 match field_name {
                     "NetworkID" => {
@@ -843,6 +1131,14 @@ mod tests {
                     }
                     _ => (),
                 }
+                Ok(())
+            }
+
+            fn visit_array<E: DeserError, AD: deserialize::ArrayDeserializer<Error = E>>(
+                &mut self,
+                _field_name: &str,
+                _array_deserializer: AD,
+            ) -> Result<(), E> {
                 Ok(())
             }
         }
@@ -870,23 +1166,33 @@ mod tests {
             fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
                 &mut self,
                 field_name: &str,
-                mut field_accessor: F,
+                field_accessor: F,
             ) -> Result<(), E> {
                 match field_name {
                     "Flags" => {
                         self.flags = Some(field_accessor.deserialize_uint32()?);
                     }
-                    _ => (),
+                    _ => return Err(E::unexpected_field(field_name)),
                 }
                 Ok(())
+            }
+
+            fn visit_array<E: DeserError, AD: deserialize::ArrayDeserializer<Error = E>>(
+                &mut self,
+                field_name: &str,
+                _array_deserializer: AD,
+            ) -> Result<(), E> {
+                Err(E::unexpected_field(field_name))
             }
         }
 
         let mut visitor = Visitor::default();
 
-        s.deserialize(&mut visitor).unwrap();
+        let result = s.deserialize(&mut visitor);
 
-        assert_eq!(visitor.flags, Some(23));
+        assert_matches!(result.map(|_|()), Err(BinaryCodecError::InvalidField(message)) => {
+            assert!(message.contains("Unexpected field"), "message: {}", message);
+        });
     }
 
     /// Tests the example <https://xrpl.org/serialization.html#examples>
@@ -943,6 +1249,10 @@ mod tests {
         let txn: AccountSetTransaction =
             crate::deserialize::deserialize(&serialize::serialize(&txn_orig).unwrap()).unwrap();
         assert_eq!(txn.common.memos.len(), 2);
+        assert_eq!(
+            txn.common.account,
+            AccountId::from_address("rMBzp8CgpE441cp5PVyA9rpVV7oT8hP3ys").unwrap()
+        );
     }
 
     /// Deserialize to `Transaction` enum type

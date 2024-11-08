@@ -10,7 +10,7 @@ pub trait Serialize {
 /// Serialize for XRPL types and objects
 pub trait Serializer {
     type Error: fmt::Debug + fmt::Display;
-    type SerializeArray<'a>: SerializeArray<Error = Self::Error>
+    type ArraySerializer<'a>: ArraySerializer<Error = Self::Error>
     where
         Self: 'a;
 
@@ -41,10 +41,10 @@ pub trait Serializer {
     fn serialize_array(
         &mut self,
         field_name: &str,
-    ) -> Result<Self::SerializeArray<'_>, Self::Error>;
+    ) -> Result<Self::ArraySerializer<'_>, Self::Error>;
 }
 
-pub trait SerializeArray {
+pub trait ArraySerializer {
     type Error: fmt::Debug + fmt::Display;
 
     fn serialize_object<T: Serialize>(

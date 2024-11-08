@@ -1,7 +1,10 @@
+use crate::deserialize::{ArrayDeserializer, DeserError, Deserialize, Deserializer, FieldAccessor};
 use crate::serialize::{Serialize, Serializer};
-use crate::{AccountId, Amount, Hash256, TransactionTrait, TransactionCommon, TransactionType, UInt32, TransactionCommonVisitor, deserialize};
+use crate::{
+    deserialize, AccountId, Amount, Hash256, TransactionCommon, TransactionCommonVisitor,
+    TransactionTrait, TransactionType, UInt32,
+};
 use enumflags2::{bitflags, BitFlags};
-use crate::deserialize::{DeserError, Deserialize, Deserializer, FieldAccessor};
 
 /// An `Payment` transaction <https://xrpl.org/payment.html>
 #[derive(Debug, Clone)]
@@ -75,7 +78,6 @@ impl Serialize for PaymentTransaction {
     }
 }
 
-
 impl Deserialize for PaymentTransaction {
     fn deserialize<S: Deserializer>(deserializer: S) -> Result<Self, S::Error>
     where
@@ -97,13 +99,11 @@ impl Deserialize for PaymentTransaction {
             fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
                 &mut self,
                 field_name: &str,
-                mut field_accessor: F,
+                field_accessor: F,
             ) -> Result<(), E> {
                 match field_name {
                     "TransactionType" => {
-                        if field_accessor.deserialize_uint16()?
-                            != TransactionType::Payment as u16
-                        {
+                        if field_accessor.deserialize_uint16()? != TransactionType::Payment as u16 {
                             return Err(E::invalid_value("Wrong transaction type"));
                         }
                     }
@@ -135,6 +135,14 @@ impl Deserialize for PaymentTransaction {
                 }
                 Ok(())
             }
+
+            fn visit_array<E: DeserError, AD: ArrayDeserializer<Error = E>>(
+                &mut self,
+                field_name: &str,
+                array_deserializer: AD,
+            ) -> Result<(), E> {
+                self.common.visit_array(field_name, array_deserializer)
+            }
         }
 
         let mut visitor = Visitor::default();
@@ -153,4 +161,3 @@ impl Deserialize for PaymentTransaction {
         })
     }
 }
-
