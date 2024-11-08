@@ -1,6 +1,7 @@
 use crate::alloc::vec::Vec;
-use crate::serialize::{Serialize, SerializeArray, Serializer};
-use crate::{AccountId, Amount, Blob, DropsAmount, Hash256, UInt32};
+use crate::deserialize::{ArrayDeserializer, DeserError, Deserialize, Deserializer, FieldAccessor};
+use crate::serialize::{ArraySerializer, Serialize, Serializer};
+use crate::{deserialize, AccountId, Amount, Blob, DropsAmount, Hash256, UInt32};
 
 #[derive(Debug, Clone)]
 pub struct Memo {
@@ -92,5 +93,167 @@ impl Serialize for Memo {
             s.serialize_blob("MemoFormat", memo_format)?;
         }
         Ok(())
+    }
+}
+
+impl Deserialize for Memo {
+    fn deserialize<S: Deserializer>(deserializer: S) -> Result<Self, S::Error>
+    where
+        Self: Sized,
+    {
+        #[derive(Default)]
+        struct Visitor {
+            pub memo_type: Option<Blob>,
+            pub memo_data: Option<Blob>,
+            pub memo_format: Option<Blob>,
+        }
+
+        impl deserialize::Visitor for Visitor {
+            fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
+                &mut self,
+                field_name: &str,
+                field_accessor: F,
+            ) -> Result<(), E> {
+                match field_name {
+                    "MemoType" => {
+                        self.memo_type = Some(field_accessor.deserialize_blob()?);
+                    }
+                    "MemoData" => {
+                        self.memo_data = Some(field_accessor.deserialize_blob()?);
+                    }
+                    "MemoFormat" => {
+                        self.memo_format = Some(field_accessor.deserialize_blob()?);
+                    }
+                    _ => return Err(E::unexpected_field(field_name)),
+                }
+                Ok(())
+            }
+
+            fn visit_array<E: DeserError, AD: ArrayDeserializer>(
+                &mut self,
+                field_name: &str,
+                _array_deserializer: AD,
+            ) -> Result<(), E> {
+                Err(E::unexpected_field(field_name))
+            }
+        }
+
+        let mut visitor = Visitor::default();
+
+        deserializer.deserialize(&mut visitor)?;
+
+        Ok(Memo {
+            memo_type: S::Error::unwrap_field_value("MemoType", visitor.memo_type)?,
+            memo_data: S::Error::unwrap_field_value("MemoData", visitor.memo_data)?,
+            memo_format: visitor.memo_format,
+        })
+    }
+}
+
+#[derive(Default)]
+pub struct TransactionCommonVisitor {
+    pub account: Option<AccountId>,
+    pub fee: Option<DropsAmount>,
+    pub sequence: Option<UInt32>,
+    pub account_txn_id: Option<Hash256>,
+    pub last_ledger_sequence: Option<UInt32>,
+    pub memos: Vec<Memo>,
+    pub network_id: Option<UInt32>,
+    pub source_tag: Option<UInt32>,
+    pub signing_pub_key: Option<Blob>,
+    pub ticket_sequence: Option<UInt32>,
+    pub txn_signature: Option<Blob>,
+}
+
+impl deserialize::Visitor for TransactionCommonVisitor {
+    fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
+        &mut self,
+        field_name: &str,
+        field_accessor: F,
+    ) -> Result<(), E> {
+        match field_name {
+            "NetworkID" => {
+                self.network_id = Some(field_accessor.deserialize_uint32()?);
+            }
+            "SourceTag" => {
+                self.source_tag = Some(field_accessor.deserialize_uint32()?);
+            }
+            "Sequence" => {
+                self.sequence = Some(field_accessor.deserialize_uint32()?);
+            }
+            "LastLedgerSequence" => {
+                self.last_ledger_sequence = Some(field_accessor.deserialize_uint32()?);
+            }
+            "TicketSequence" => {
+                self.ticket_sequence = Some(field_accessor.deserialize_uint32()?);
+            }
+            "AccountTxnID" => {
+                self.account_txn_id = Some(field_accessor.deserialize_hash256()?);
+            }
+            "Fee" => {
+                self.fee = Some(match field_accessor.deserialize_amount()? {
+                    Amount::Issued(_) => {
+                        return Err(E::invalid_value("Fee amount issued token"));
+                    }
+                    Amount::Drops(drops) => drops,
+                });
+            }
+            "SigningPubKey" => {
+                self.signing_pub_key = Some(field_accessor.deserialize_blob()?);
+            }
+            "TxnSignature" => {
+                self.txn_signature = Some(field_accessor.deserialize_blob()?);
+            }
+            "Account" => {
+                self.account = Some(field_accessor.deserialize_account_id()?);
+            }
+            _ => return Err(E::unexpected_field(field_name)),
+        }
+        Ok(())
+    }
+
+    fn visit_array<E: DeserError, AD: ArrayDeserializer<Error = E>>(
+        &mut self,
+        field_name: &str,
+        mut array_deserializer: AD,
+    ) -> Result<(), E> {
+        match field_name {
+            "Memos" => {
+                while let Some(memo) = array_deserializer.deserialize_object("Memo")? {
+                    self.memos.push(memo);
+                }
+            }
+            _ => return Err(E::unexpected_field(field_name)),
+        }
+        Ok(())
+    }
+}
+
+impl TransactionCommonVisitor {
+    pub fn into_transaction_common<E: DeserError>(self) -> Result<TransactionCommon, E> {
+        Ok(TransactionCommon {
+            account: E::unwrap_field_value("Account", self.account)?,
+            fee: self.fee,
+            sequence: self.sequence,
+            account_txn_id: self.account_txn_id,
+            last_ledger_sequence: self.last_ledger_sequence,
+            memos: self.memos,
+            network_id: self.network_id,
+            source_tag: self.source_tag,
+            signing_pub_key: self.signing_pub_key,
+            ticket_sequence: self.ticket_sequence,
+            txn_signature: self.txn_signature,
+        })
+    }
+}
+
+impl Deserialize for TransactionCommon {
+    fn deserialize<S: Deserializer>(deserializer: S) -> Result<Self, S::Error>
+    where
+        Self: Sized,
+    {
+        let mut visitor = TransactionCommonVisitor::default();
+        deserializer.deserialize(&mut visitor)?;
+        visitor.into_transaction_common()
     }
 }

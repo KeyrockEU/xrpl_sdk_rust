@@ -9,16 +9,14 @@ repository = "https://github.com/gmosx/xrpl-sdk-rust/tree/main/xrpl_binary_codec
 keywords = ["xrpl", "ledger", "api", "protocol"]
 
 [dependencies]
-xrpl_types = { path = "../xrpl_types", version = "0.16.4", default-features = false }
-serde_json = { workspace = true, default-features = false, features = [
-    "alloc",
-] }
-hex = { workspace = true, default-features = false, features = ["alloc"] }
-sha2 = { workspace = true, default-features = false }
-libsecp256k1 = { workspace = true, default-features = false, features = [
+xrpl_types = { path = "../xrpl_types", version = "0.16.6", default-features = false }
+hex = { workspace = true, features = ["alloc"] }
+sha2.workspace = true
+libsecp256k1 = { workspace = true, features = [
     "static-context",
     "hmac",
 ] }
+ascii = { workspace = true, features = ["alloc"] }
 bytes = { version = "1.5.0", default-features = false }
 
 # The following dependencies are only used when compiling for `no_std`.
@@ -30,8 +28,7 @@ spin = { version = "0.9.8", default-features = false, features = ["once"] }
 
 [features]
 default = ["std"]
-std = ["hex/std", "serde_json/std"]
-json = []
+std = ["xrpl_types/std", "hex/std", "sha2/std", "libsecp256k1/std", "bytes/std", "ascii/std" ]
 
 [dev-dependencies]
 ascii.workspace = true

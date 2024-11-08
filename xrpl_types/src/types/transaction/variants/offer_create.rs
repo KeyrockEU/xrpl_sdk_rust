@@ -1,5 +1,9 @@
+use crate::deserialize::{ArrayDeserializer, DeserError, Deserialize, Deserializer, FieldAccessor};
 use crate::serialize::{Serialize, Serializer};
-use crate::{AccountId, Amount, Transaction, TransactionCommon, TransactionType, UInt32};
+use crate::{
+    deserialize, AccountId, Amount, TransactionCommon, TransactionCommonVisitor, TransactionTrait,
+    TransactionType, UInt32,
+};
 use enumflags2::{bitflags, BitFlags};
 
 /// An `OfferCreate` transaction <https://xrpl.org/offercreate.html>
@@ -26,7 +30,7 @@ impl OfferCreateTransaction {
     }
 }
 
-impl Transaction for OfferCreateTransaction {
+impl TransactionTrait for OfferCreateTransaction {
     fn common(&self) -> &TransactionCommon {
         &self.common
     }
@@ -62,5 +66,81 @@ impl Serialize for OfferCreateTransaction {
         s.serialize_amount("TakerPays", self.taker_pays)?;
         s.serialize_amount("TakerGets", self.taker_gets)?;
         Ok(())
+    }
+}
+
+impl Deserialize for OfferCreateTransaction {
+    fn deserialize<S: Deserializer>(deserializer: S) -> Result<Self, S::Error>
+    where
+        Self: Sized,
+    {
+        #[derive(Default)]
+        struct Visitor {
+            common: TransactionCommonVisitor,
+            flags: BitFlags<OfferCreateFlags>,
+            expiration: Option<UInt32>,
+            offer_sequence: Option<UInt32>,
+            taker_gets: Option<Amount>,
+            taker_pays: Option<Amount>,
+        }
+
+        impl deserialize::Visitor for Visitor {
+            fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
+                &mut self,
+                field_name: &str,
+                field_accessor: F,
+            ) -> Result<(), E> {
+                match field_name {
+                    "TransactionType" => {
+                        if field_accessor.deserialize_uint16()?
+                            != TransactionType::OfferCreate as u16
+                        {
+                            return Err(E::invalid_value("Wrong transaction type"));
+                        }
+                    }
+                    "Flags" => {
+                        self.flags = BitFlags::from_bits(field_accessor.deserialize_uint32()?)
+                            .map_err(E::invalid_value)?;
+                    }
+                    "Expiration" => {
+                        self.expiration = Some(field_accessor.deserialize_uint32()?);
+                    }
+                    "OfferSequence" => {
+                        self.offer_sequence = Some(field_accessor.deserialize_uint32()?);
+                    }
+                    "TakerPays" => {
+                        self.taker_pays = Some(field_accessor.deserialize_amount()?);
+                    }
+                    "TakerGets" => {
+                        self.taker_gets = Some(field_accessor.deserialize_amount()?);
+                    }
+                    _ => {
+                        self.common.visit_field(field_name, field_accessor)?;
+                    }
+                }
+                Ok(())
+            }
+
+            fn visit_array<E: DeserError, AD: ArrayDeserializer<Error = E>>(
+                &mut self,
+                field_name: &str,
+                array_deserializer: AD,
+            ) -> Result<(), E> {
+                self.common.visit_array(field_name, array_deserializer)
+            }
+        }
+
+        let mut visitor = Visitor::default();
+
+        deserializer.deserialize(&mut visitor)?;
+
+        Ok(OfferCreateTransaction {
+            common: visitor.common.into_transaction_common()?,
+            flags: visitor.flags,
+            expiration: visitor.expiration,
+            offer_sequence: visitor.offer_sequence,
+            taker_gets: S::Error::unwrap_field_value("TakerGets", visitor.taker_gets)?,
+            taker_pays: S::Error::unwrap_field_value("TakerPays", visitor.taker_pays)?,
+        })
     }
 }

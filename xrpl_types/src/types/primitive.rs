@@ -48,7 +48,7 @@ pub struct Hash256(pub [u8; 32]);
 pub type UInt8 = u8;
 pub type UInt16 = u16;
 pub type UInt32 = u32;
-pub type Uint64 = u64;
+pub type UInt64 = u64;
 
 impl Hash128 {
     pub fn from_hex(hex: &str) -> Result<Self, Error> {

@@ -1,6 +1,8 @@
+use crate::deserialize::{ArrayDeserializer, DeserError, Deserialize, Deserializer, FieldAccessor};
 use crate::serialize::{Serialize, Serializer};
 use crate::{
-    AccountId, Amount, IssuedAmount, Transaction, TransactionCommon, TransactionType, UInt32,
+    deserialize, AccountId, Amount, IssuedAmount, TransactionCommon, TransactionCommonVisitor,
+    TransactionTrait, TransactionType, UInt32,
 };
 use enumflags2::{bitflags, BitFlags};
 
@@ -26,7 +28,7 @@ impl TrustSetTransaction {
     }
 }
 
-impl Transaction for TrustSetTransaction {
+impl TransactionTrait for TrustSetTransaction {
     fn common(&self) -> &TransactionCommon {
         &self.common
     }
@@ -62,5 +64,80 @@ impl Serialize for TrustSetTransaction {
             s.serialize_uint32("QualityOut", quality_out)?;
         }
         Ok(())
+    }
+}
+
+impl Deserialize for TrustSetTransaction {
+    fn deserialize<S: Deserializer>(deserializer: S) -> Result<Self, S::Error>
+    where
+        Self: Sized,
+    {
+        #[derive(Default)]
+        struct Visitor {
+            common: TransactionCommonVisitor,
+            flags: BitFlags<TrustSetFlags>,
+            limit_amount: Option<IssuedAmount>,
+            quality_in: Option<UInt32>,
+            quality_out: Option<UInt32>,
+        }
+
+        impl deserialize::Visitor for Visitor {
+            fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
+                &mut self,
+                field_name: &str,
+                field_accessor: F,
+            ) -> Result<(), E> {
+                match field_name {
+                    "TransactionType" => {
+                        if field_accessor.deserialize_uint16()? != TransactionType::TrustSet as u16
+                        {
+                            return Err(E::invalid_value("Wrong transaction type"));
+                        }
+                    }
+                    "Flags" => {
+                        self.flags = BitFlags::from_bits(field_accessor.deserialize_uint32()?)
+                            .map_err(E::invalid_value)?;
+                    }
+                    "LimitAmount" => {
+                        self.limit_amount = Some(match field_accessor.deserialize_amount()? {
+                            Amount::Drops(_) => {
+                                return Err(E::invalid_value("Limit amount drops"));
+                            }
+                            Amount::Issued(amount) => amount,
+                        });
+                    }
+                    "QualityIn" => {
+                        self.quality_in = Some(field_accessor.deserialize_uint32()?);
+                    }
+                    "QualityOut" => {
+                        self.quality_out = Some(field_accessor.deserialize_uint32()?);
+                    }
+                    _ => {
+                        self.common.visit_field(field_name, field_accessor)?;
+                    }
+                }
+                Ok(())
+            }
+
+            fn visit_array<E: DeserError, AD: ArrayDeserializer<Error = E>>(
+                &mut self,
+                field_name: &str,
+                array_deserializer: AD,
+            ) -> Result<(), E> {
+                self.common.visit_array(field_name, array_deserializer)
+            }
+        }
+
+        let mut visitor = Visitor::default();
+
+        deserializer.deserialize(&mut visitor)?;
+
+        Ok(TrustSetTransaction {
+            common: visitor.common.into_transaction_common()?,
+            flags: visitor.flags,
+            limit_amount: S::Error::unwrap_field_value("LimitAmount", visitor.limit_amount)?,
+            quality_in: visitor.quality_in,
+            quality_out: visitor.quality_out,
+        })
     }
 }

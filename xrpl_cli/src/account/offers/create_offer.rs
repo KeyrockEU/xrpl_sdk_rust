@@ -3,7 +3,7 @@ use libsecp256k1::{PublicKey, SecretKey};
 
 use xrpl_binary_codec::{serialize, sign};
 use xrpl_http_client::{Client, SubmitRequest};
-use xrpl_types::{AccountId, OfferCreateTransaction, Transaction};
+use xrpl_types::{AccountId, OfferCreateTransaction, TransactionTrait};
 
 use crate::fmt::amount_from_str;
 

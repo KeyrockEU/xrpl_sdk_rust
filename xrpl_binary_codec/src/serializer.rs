@@ -1,14 +1,8 @@
-use crate::alloc::{format, string::ToString, vec::Vec};
 use crate::error::BinaryCodecError;
-use crate::serializer::field_id::{FieldCode, FieldId, TypeCode};
-use xrpl_types::{
-    serialize::{Serialize, SerializeArray},
-    AccountId, Amount, Blob, CurrencyCode, DropsAmount, Hash128, Hash160, Hash256, IssuedValue,
-    UInt16, UInt32, UInt8, Uint64,
-};
-
-pub mod field_id;
-pub mod field_info;
+use crate::field::{field_info, FieldCode, FieldId, TypeCode};
+use alloc::{format, string::ToString, vec::Vec};
+use bytes::BufMut;
+use xrpl_types::{serialize, serialize::{Serialize}, AccountId, Amount, Blob, CurrencyCode, DropsAmount, Hash128, Hash160, Hash256, IssuedValue, UInt16, UInt32, UInt64, UInt8};
 
 #[derive(Debug, Default)]
 pub struct Serializer {
@@ -20,7 +14,7 @@ pub struct Serializer {
 
 impl xrpl_types::serialize::Serializer for Serializer {
     type Error = BinaryCodecError;
-    type SerializeArray<'a> = ArraySerializer<'a>;
+    type ArraySerializer<'a> = ArraySerializer<'a>;
 
     fn serialize_account_id(
         &mut self,
@@ -116,7 +110,7 @@ impl xrpl_types::serialize::Serializer for Serializer {
     fn serialize_uint64(
         &mut self,
         field_name: &str,
-        uint64: Uint64,
+        uint64: UInt64,
     ) -> Result<(), BinaryCodecError> {
         self.serialize_field(field_name, TypeCode::UInt64, |ser| {
             ser.push_uint64(uint64)?;
@@ -127,7 +121,7 @@ impl xrpl_types::serialize::Serializer for Serializer {
     fn serialize_array(
         &mut self,
         field_name: &str,
-    ) -> Result<Self::SerializeArray<'_>, Self::Error> {
+    ) -> Result<Self::ArraySerializer<'_>, Self::Error> {
         let start_index = self.start_field(field_name, TypeCode::Array)?;
         Ok(ArraySerializer {
             serializer: self,
@@ -142,7 +136,7 @@ pub struct ArraySerializer<'a> {
     start_index: SerializeFieldStartIndex,
 }
 
-impl<'a> SerializeArray for ArraySerializer<'a> {
+impl<'a> serialize::ArraySerializer for ArraySerializer<'a> {
     type Error = BinaryCodecError;
 
     fn serialize_object<T: Serialize>(
@@ -150,12 +144,11 @@ impl<'a> SerializeArray for ArraySerializer<'a> {
         field_name: &str,
         object: &T,
     ) -> Result<(), Self::Error> {
-        let field_id = field_id(field_name, TypeCode::Object)?;
+        let field_id = get_field_id(field_name, TypeCode::Object)?;
         self.serializer.push_field_id(field_id)?;
         let mut object_serializer = Serializer::new();
         object.serialize(&mut object_serializer)?;
-        self.serializer
-            .push_slice(&object_serializer.into_bytes()?)?;
+        object_serializer.into_buffer(&mut self.serializer.buffer)?;
         self.serializer
             .push_field_id(FieldId::from_type_field(TypeCode::Object, FieldCode(1)))?;
         Ok(())
@@ -213,6 +206,11 @@ impl Serializer {
 
     pub fn into_bytes(self) -> Result<Vec<u8>, BinaryCodecError> {
         let mut bytes = Vec::with_capacity(self.buffer.len());
+        self.into_buffer(&mut bytes)?;
+        Ok(bytes)
+    }
+
+    pub fn into_buffer(self, mut writer: impl BufMut) -> Result<(), BinaryCodecError> {
         let mut serialized_fields = self.serialized_fields;
         serialized_fields.sort_by_key(|f| f.field_id);
         for field_pair in serialized_fields.windows(2) {
@@ -223,9 +221,9 @@ impl Serializer {
             }
         }
         for field in serialized_fields {
-            bytes.extend_from_slice(&self.buffer[field.index..field.index + field.length]);
+            writer.put(&self.buffer[field.index..field.index + field.length]);
         }
-        Ok(bytes)
+        Ok(())
     }
 
     fn start_field(
@@ -233,7 +231,7 @@ impl Serializer {
         field_name: &str,
         field_type: TypeCode,
     ) -> Result<SerializeFieldStartIndex, BinaryCodecError> {
-        let field_id = field_id(field_name, field_type)?;
+        let field_id = get_field_id(field_name, field_type)?;
         let start_index = SerializeFieldStartIndex::new(field_id, self.buffer.len());
         self.push_field_id(field_id)?;
         Ok(start_index)
@@ -278,7 +276,7 @@ impl Serializer {
         self.push_slice(&value.to_be_bytes())
     }
 
-    fn push_uint64(&mut self, value: Uint64) -> Result<(), BinaryCodecError> {
+    fn push_uint64(&mut self, value: UInt64) -> Result<(), BinaryCodecError> {
         self.push_slice(&value.to_be_bytes())
     }
 
@@ -303,8 +301,22 @@ impl Serializer {
     /// Push field id <https://xrpl.org/serialization.html#field-ids>
     fn push_field_id(&mut self, field_id: FieldId) -> Result<(), BinaryCodecError> {
         // rippled implementation: https://github.com/seelabs/rippled/blob/cecc0ad75849a1d50cc573188ad301ca65519a5b/src/ripple/protocol/impl/Serializer.cpp#L117-L148
-        let header: Vec<u8> = field_id.into();
-        self.push_slice(&header)
+        let type_code = field_id.type_code as u8;
+        let field_code = field_id.field_code.0;
+        if type_code < 16 && field_code < 16 {
+            self.push(type_code << 4 | field_code)?;
+        } else if type_code < 16 {
+            self.push(type_code << 4)?;
+            self.push(field_code)?;
+        } else if field_code < 16 {
+            self.push(field_code)?;
+            self.push(type_code)?;
+        } else {
+            self.push(0)?;
+            self.push(type_code)?;
+            self.push(field_code)?;
+        }
+        Ok(())
     }
 
     /// Push length prefix according to <https://xrpl.org/serialization.html#length-prefixing>
@@ -393,30 +405,28 @@ impl Serializer {
     }
 }
 
-pub fn field_id(field_name: &str, field_type: TypeCode) -> Result<FieldId, BinaryCodecError> {
-    let field_info = field_info::field_info(field_name).ok_or_else(|| {
+pub fn get_field_id(field_name: &str, field_type: TypeCode) -> Result<FieldId, BinaryCodecError> {
+    let field_id = *field_info::field_id_by_name(field_name).ok_or_else(|| {
         BinaryCodecError::InvalidField(format!("Field with name {} is not known", field_name))
     })?;
-    if field_type != field_info.field_type {
+    if field_type != field_id.type_code {
         return Err(BinaryCodecError::InvalidField(format!(
             "Field with name {} must have type {}",
-            field_name, field_info.field_type
+            field_name, field_id.type_code
         )));
     }
-    Ok(FieldId::from_type_field(
-        field_info.field_type,
-        field_info.field_code,
-    ))
+    Ok(field_id)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::serialize;
     use alloc::vec;
     use ascii::AsciiChar;
     use assert_matches::assert_matches;
     use enumflags2::BitFlags;
-    use xrpl_types::serialize::{Serialize, Serializer};
+    use xrpl_types::serialize::{ArraySerializer, Serialize, Serializer};
     use xrpl_types::OfferCreateTransaction;
 
     fn serializer() -> super::Serializer {
@@ -978,8 +988,7 @@ mod tests {
     /// Tests the example <https://xrpl.org/serialization.html#examples>
     #[test]
     fn test_serialize_offer_create() {
-        let mut s = serializer();
-        let mut tx = OfferCreateTransaction::new(
+        let mut txn = OfferCreateTransaction::new(
             AccountId::from_address("rMBzp8CgpE441cp5PVyA9rpVV7oT8hP3ys").unwrap(),
             Amount::drops(15000000000).unwrap(),
             Amount::issued(
@@ -989,18 +998,18 @@ mod tests {
             )
             .unwrap(),
         );
-        tx.common.fee = Some(DropsAmount::from_drops(10).unwrap());
-        tx.common.sequence = Some(1752792);
-        tx.common.signing_pub_key = Some(Blob(
+        txn.common.fee = Some(DropsAmount::from_drops(10).unwrap());
+        txn.common.sequence = Some(1752792);
+        txn.common.signing_pub_key = Some(Blob(
             hex::decode("03EE83BB432547885C219634A1BC407A9DB0474145D69737D09CCDC63E1DEE7FE3")
                 .unwrap(),
         ));
-        tx.common.txn_signature = Some(Blob(hex::decode("30440220143759437C04F7B61F012563AFE90D8DAFC46E86035E1D965A9CED282C97D4CE02204CFD241E86F17E011298FC1A39B63386C74306A5DE047E213B0F29EFA4571C2C").unwrap()));
-        tx.expiration = Some(595640108);
-        tx.flags = BitFlags::from_bits(524288).unwrap();
-        tx.offer_sequence = Some(1752791);
+        txn.common.txn_signature = Some(Blob(hex::decode("30440220143759437C04F7B61F012563AFE90D8DAFC46E86035E1D965A9CED282C97D4CE02204CFD241E86F17E011298FC1A39B63386C74306A5DE047E213B0F29EFA4571C2C").unwrap()));
+        txn.expiration = Some(595640108);
+        txn.flags = BitFlags::from_bits(524288).unwrap();
+        txn.offer_sequence = Some(1752791);
 
-        tx.serialize(&mut s).unwrap();
-        assert_eq!(hex::encode_upper(s.into_bytes().unwrap()), "120007220008000024001ABED82A2380BF2C2019001ABED764D55920AC9391400000000000000000000000000055534400000000000A20B3C85F482532A9578DBB3950B85CA06594D165400000037E11D60068400000000000000A732103EE83BB432547885C219634A1BC407A9DB0474145D69737D09CCDC63E1DEE7FE3744630440220143759437C04F7B61F012563AFE90D8DAFC46E86035E1D965A9CED282C97D4CE02204CFD241E86F17E011298FC1A39B63386C74306A5DE047E213B0F29EFA4571C2C8114DD76483FACDEE26E60D8A586BB58D09F27045C46");
+        let bytes = serialize::serialize(&txn).unwrap();
+        assert_eq!(hex::encode_upper(&bytes), "120007220008000024001ABED82A2380BF2C2019001ABED764D55920AC9391400000000000000000000000000055534400000000000A20B3C85F482532A9578DBB3950B85CA06594D165400000037E11D60068400000000000000A732103EE83BB432547885C219634A1BC407A9DB0474145D69737D09CCDC63E1DEE7FE3744630440220143759437C04F7B61F012563AFE90D8DAFC46E86035E1D965A9CED282C97D4CE02204CFD241E86F17E011298FC1A39B63386C74306A5DE047E213B0F29EFA4571C2C8114DD76483FACDEE26E60D8A586BB58D09F27045C46");
     }
 }
