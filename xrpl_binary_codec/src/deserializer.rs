@@ -39,43 +39,36 @@ impl<B: Buf> deserialize::Deserializer for Deserializer<B> {
                 return Ok(());
             }
 
-            let field_id = self.read_field_id()?;
-            let field_name = get_field_name(field_id)?;
-            visitor.visit_field(
-                field_name,
-                FieldAccessor {
-                    deserializer: &mut self,
-                },
-            )?;
+            let (field_accessor, field_id, field_name) = self.deserialize_field()?;
+            visitor.visit_field(field_name, field_accessor)?;
         }
     }
 
     fn deserialize_single_field(
         &mut self,
-        field_name: &str,
+        expected_field_name: &str,
     ) -> Result<impl deserialize::FieldAccessor<Error = BinaryCodecError>, Self::Error> {
-        let field_id = self.read_field_id()?;
-        let actual_field_name = get_field_name(field_id)?;
-        if field_name != actual_field_name {
+        let (field_accessor, field_id, field_name) = self.deserialize_field()?;
+
+        if field_name != expected_field_name {
             return Err(BinaryCodecError::InvalidField(format!(
                 "Expected field {}, found {}",
-                field_name, actual_field_name
+                expected_field_name, field_name
             )));
         }
 
-        Ok(FieldAccessor { deserializer: self })
+        Ok(field_accessor)
     }
 }
 
 impl<B: Buf> Deserializer<B> {
     fn deserialize_field(
         &mut self,
-    ) -> Result<impl deserialize::FieldAccessor<Error = BinaryCodecError>, Self::Error> {
+    ) -> Result<(FieldAccessor<'_, B>, FieldId, &'static str), BinaryCodecError> {
         let field_id = self.read_field_id()?;
         let field_name = get_field_name(field_id)?;
 
-
-        Ok(FieldAccessor { deserializer: self })
+        Ok((FieldAccessor { deserializer: self }, field_id, field_name))
     }
 }
 
