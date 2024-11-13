@@ -15,7 +15,7 @@ pub trait DeserError: fmt::Debug + fmt::Display + Sized {
     }
 }
 
-/// Deserializes XRPL objects to a [`Deserializer`]
+/// Deserializes XRPL objects using a [`Deserializer`]
 pub trait Deserialize {
     /// Deserialize the object
     fn deserialize<S: Deserializer>(deserializer: S) -> Result<Self, S::Error>
@@ -37,6 +37,7 @@ pub trait Deserializer {
     ) -> Result<impl FieldAccessor<Error = Self::Error>, Self::Error>;
 }
 
+/// Visits fields during deserialization
 pub trait Visitor {
     fn visit_field<E: DeserError, F: FieldAccessor<Error = E>>(
         &mut self,
@@ -51,6 +52,7 @@ pub trait Visitor {
     ) -> Result<(), E>;
 }
 
+/// Access to field value
 pub trait FieldAccessor {
     type Error: DeserError;
 
@@ -75,10 +77,12 @@ pub trait FieldAccessor {
     fn deserialize_uint64(self) -> Result<UInt64, Self::Error>;
 }
 
-#[must_use]
+/// Deserialization of array elements
 pub trait ArrayDeserializer {
     type Error: DeserError;
 
+    /// Deserializes a single object in the array.
+    /// Returns `None` at the end of the array.
     fn deserialize_object<T: Deserialize>(
         &mut self,
         field_name: &str,
