@@ -1,8 +1,5 @@
 use crate::alloc::string::{String, ToString};
 
-#[cfg(feature = "std")]
-use std::collections::HashMap;
-#[cfg(not(feature = "std"))]
 use hashbrown::HashMap;
 use crate::field::FieldId;
 
