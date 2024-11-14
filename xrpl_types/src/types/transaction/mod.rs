@@ -4,7 +4,7 @@ mod variants;
 use crate::deserialize::FieldAccessor;
 use crate::deserialize::{DeserError, Deserialize, Deserializer};
 use crate::serialize::Serialize;
-use alloc::{format};
+use alloc::format;
 pub use common::*;
 pub use variants::*;
 
@@ -152,6 +152,66 @@ pub enum Transaction {
     SignerListSet(TransactionCommon),
     TicketCreate(TransactionCommon),
     TrustSet(TrustSetTransaction),
+}
+
+impl Transaction {
+    pub fn common(&self) -> &TransactionCommon {
+        match self {
+            Transaction::AccountDelete(txn) => &txn.common,
+            Transaction::AccountSet(txn) => &txn.common,
+            Transaction::CheckCancel(txn) => &txn,
+            Transaction::CheckCash(txn) => &txn,
+            Transaction::CheckCreate(txn) => &txn,
+            Transaction::DepositPreauth(txn) => &txn,
+            Transaction::EscrowCancel(txn) => &txn,
+            Transaction::EscrowCreate(txn) => &txn,
+            Transaction::EscrowFinish(txn) => &txn,
+            Transaction::NFTokenAcceptOffer(txn) => &txn,
+            Transaction::NFTokenBurn(txn) => &txn,
+            Transaction::NFTokenCancelOffer(txn) => &txn,
+            Transaction::NFTokenCreateOffer(txn) => &txn,
+            Transaction::NFTokenMint(txn) => &txn,
+            Transaction::OfferCancel(txn) => &txn.common,
+            Transaction::OfferCreate(txn) => &txn.common,
+            Transaction::Payment(txn) => &txn.common,
+            Transaction::PaymentChannelClaim(txn) => &txn,
+            Transaction::PaymentChannelCreate(txn) => &txn,
+            Transaction::PaymentChannelFund(txn) => &txn,
+            Transaction::SetRegularKey(txn) => &txn,
+            Transaction::SignerListSet(txn) => &txn,
+            Transaction::TicketCreate(txn) => &txn,
+            Transaction::TrustSet(txn) => &txn.common,
+        }
+    }
+
+    pub fn common_mut(&mut self) -> &mut TransactionCommon {
+        match self {
+            Transaction::AccountDelete(txn) => &mut txn.common,
+            Transaction::AccountSet(txn) => &mut txn.common,
+            Transaction::CheckCancel(txn) => txn,
+            Transaction::CheckCash(txn) => txn,
+            Transaction::CheckCreate(txn) => txn,
+            Transaction::DepositPreauth(txn) => txn,
+            Transaction::EscrowCancel(txn) => txn,
+            Transaction::EscrowCreate(txn) => txn,
+            Transaction::EscrowFinish(txn) => txn,
+            Transaction::NFTokenAcceptOffer(txn) => txn,
+            Transaction::NFTokenBurn(txn) => txn,
+            Transaction::NFTokenCancelOffer(txn) => txn,
+            Transaction::NFTokenCreateOffer(txn) => txn,
+            Transaction::NFTokenMint(txn) => txn,
+            Transaction::OfferCancel(txn) => &mut txn.common,
+            Transaction::OfferCreate(txn) => &mut txn.common,
+            Transaction::Payment(txn) => &mut txn.common,
+            Transaction::PaymentChannelClaim(txn) => txn,
+            Transaction::PaymentChannelCreate(txn) => txn,
+            Transaction::PaymentChannelFund(txn) => txn,
+            Transaction::SetRegularKey(txn) => txn,
+            Transaction::SignerListSet(txn) => txn,
+            Transaction::TicketCreate(txn) => txn,
+            Transaction::TrustSet(txn) => &mut txn.common,
+        }
+    }
 }
 
 impl Deserialize for Transaction {
