@@ -1,8 +1,10 @@
 use crate::error::BinaryCodecError;
 use crate::field::{field_info, FieldCode, FieldId, TypeCode};
 use alloc::{format, string::ToString, vec::Vec};
+use core::fmt::Display;
 use bytes::BufMut;
 use xrpl_types::{serialize, serialize::{Serialize}, AccountId, Amount, Blob, CurrencyCode, DropsAmount, Hash128, Hash160, Hash256, IssuedValue, UInt16, UInt32, UInt64, UInt8};
+use xrpl_types::serialize::SerError;
 
 #[derive(Debug, Default)]
 pub struct Serializer {
@@ -10,6 +12,12 @@ pub struct Serializer {
     buffer: Vec<u8>,
     /// Tracks which fields have been serialized to the buffer
     serialized_fields: Vec<SerializedFieldIndex>,
+}
+
+impl SerError for BinaryCodecError {
+    fn unimplemented(msg: impl Display) -> Self {
+        BinaryCodecError::InvalidField(msg.to_string())
+    }
 }
 
 impl xrpl_types::serialize::Serializer for Serializer {

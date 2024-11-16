@@ -1,5 +1,10 @@
 use core::fmt;
+use core::fmt::Display;
 use crate::{AccountId, Amount, Blob, Hash128, Hash160, Hash256, UInt16, UInt32, UInt64, UInt8};
+
+pub trait SerError: fmt::Debug + fmt::Display + Sized {
+    fn unimplemented(msg: impl Display) -> Self;
+}
 
 /// Serializes XRPL objects to a [`Serializer`]
 pub trait Serialize {
@@ -9,7 +14,7 @@ pub trait Serialize {
 
 /// Serialize for XRPL types and objects
 pub trait Serializer {
-    type Error: fmt::Debug + fmt::Display;
+    type Error: SerError;
     type ArraySerializer<'a>: ArraySerializer<Error = Self::Error>
     where
         Self: 'a;
